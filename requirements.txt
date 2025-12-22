@@ -5,3 +5,4 @@ pydantic
 psycopg2-binary
 streamlit
 requests
+pandas
