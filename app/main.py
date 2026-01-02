@@ -22,3 +22,7 @@ app.include_router(rfid_router.router, prefix="/api/v1", tags=["RFID"])
 app.include_router(transactions_router.router, prefix="/api/v1", tags=["Transactions"])
 app.include_router(history_router.router, prefix="/api/v1", tags=["History"])
 app.include_router(analytics_router.router, prefix="/api/v1", tags=["Analytics"])
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
