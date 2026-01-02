@@ -23,6 +23,9 @@ app.include_router(transactions_router.router, prefix="/api/v1", tags=["Transact
 app.include_router(history_router.router, prefix="/api/v1", tags=["History"])
 app.include_router(analytics_router.router, prefix="/api/v1", tags=["Analytics"])
 
+<<<<<<< HEAD
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+=======
+>>>>>>> 2e52078ef15e6ab30b08cd173882eef789367aaf
