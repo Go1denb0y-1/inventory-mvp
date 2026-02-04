@@ -109,7 +109,7 @@ class Product(Base):
         "InventoryHistory",
         back_populates="product",
         cascade="all, delete-orphan",
-        lazy="dynamic"
+        lazy="dynamic",
         foreign_keys="InventoryHistory"
     )
     
