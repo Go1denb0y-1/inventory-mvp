@@ -14,11 +14,276 @@ from app.schemas import (
     ProductImport, ImportResult, SuccessResponse, ErrorResponse,
     BulkOperationResult, PaginationParams, SearchQuery
 )
+import logging
 
 router = APIRouter(
     prefix="/products",
     tags=["Products"]
 )
+
+logger = logging.getLogger(_name_)
+
+
+# ----------------------------
+# Configuration
+# ----------------------------
+# Friend's API configuration
+FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://api.friend.com")
+FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
+FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))  # seconds
+
+# ----------------------------
+# Friend API Client
+# ----------------------------
+class FriendAPIClient:
+    """Client for communicating with friend's API"""
+    
+    def __init__(self, base_url: str = None, api_key: str = None):
+        self.base_url = base_url or FRIEND_API_URL
+        self.api_key = api_key or FRIEND_API_KEY
+        self.timeout = FRIEND_API_TIMEOUT
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
+        }
+    
+    def send_product(self, product_data: dict) -> dict:
+        """
+        Send product data to friend's API
+        """
+        if not self.base_url:
+            logger.warning("Friend API URL not configured")
+            return {"error": "Friend API not configured", "status": "skipped"}
+        
+        try:
+            # Construct the endpoint URL
+            endpoint = f"{self.base_url.rstrip('/')}/products"
+            
+            # Make the request
+            start_time = time.time()
+            response = requests.post(
+                endpoint,
+                json=product_data,
+                headers=self.headers,
+                timeout=self.timeout
+            )
+            elapsed_time = time.time() - start_time
+            
+            # Log the request
+            logger.info(f"Sent product to friend API: {product_data.get('sku')}, "
+                       f"Status: {response.status_code}, Time: {elapsed_time:.2f}s")
+            
+            # Return response
+            if response.status_code in [200, 201]:
+                return {
+                    "status": "success",
+                    "friend_api_response": response.json(),
+                    "status_code": response.status_code,
+                    "time_elapsed": elapsed_time
+                }
+            else:
+                return {
+                    "status": "error",
+                    "error": f"Friend API returned status {response.status_code}",
+                    "details": response.text,
+                    "status_code": response.status_code,
+                    "time_elapsed": elapsed_time
+                }
+                
+        except requests.exceptions.Timeout:
+            logger.error(f"Friend API timeout after {self.timeout}s")
+            return {
+                "status": "error",
+                "error": f"Friend API timeout after {self.timeout}s"
+            }
+        except requests.exceptions.ConnectionError:
+            logger.error("Friend API connection error")
+            return {
+                "status": "error",
+                "error": "Cannot connect to Friend API"
+            }
+        except Exception as e:
+            logger.error(f"Friend API error: {str(e)}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+# Create a singleton instance
+friend_client = FriendAPIClient()
+
+# ----------------------------
+# Sync Endpoints
+# ----------------------------
+@router.post("/{sku}/sync")
+def sync_product_by_sku(
+    sku: str,
+    db: Session = Depends(get_db),
+    force: bool = False
+):
+    """
+    Sync a specific product to friend's API by SKU.
+    
+    - **sku**: Product SKU to sync
+    - **force**: If True, sync even if product hasn't changed (default: False)
+    """
+    try:
+        # Find the product
+        product = db.query(Product).filter(Product.sku == sku.upper()).first()
+        
+        if not product:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Product with SKU {sku} not found"
+            )
+        
+        # Check if product has been modified recently (optional optimization)
+        # You could add a `last_synced_at` field to your Product model
+        # if not force and hasattr(product, 'last_synced_at'):
+        #     if product.last_synced_at and product.updated_at <= product.last_synced_at:
+        #         return {
+        #             "status": "skipped",
+        #             "message": "Product hasn't changed since last sync",
+        #             "sku": sku
+        #         }
+        
+        # Prepare payload
+        payload = {
+            "sku": product.sku,
+            "name": product.name,
+            "category": product.category,
+            "quantity": product.quantity,
+            "rfid_tag": product.rfid_tag,
+            "price": float(product.price) if product.price else None,
+            "cost": float(product.cost) if hasattr(product, 'cost') and product.cost else None,
+            "tags": product.tags or [],
+            "location": product.location if hasattr(product, 'location') else None,
+            "supplier": product.supplier if hasattr(product, 'supplier') else None,
+            "is_active": product.is_active if hasattr(product, 'is_active') else True,
+            "last_updated": product.updated_at.isoformat() if product.updated_at else None,
+            "source_system": "inventory_system"
+        }
+        
+        # Send to friend's API
+        result = friend_client.send_product(payload)
+        
+        # Update sync timestamp if successful (optional)
+        # if result.get("status") == "success" and hasattr(product, 'last_synced_at'):
+        #     product.last_synced_at = datetime.utcnow()
+        #     db.commit()
+        
+        return {
+            "product_sku": sku,
+            "product_name": product.name,
+            "sync_result": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing product {sku}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error syncing product: {str(e)}"
+        )
+
+@router.post("/sync/batch")
+def sync_multiple_products(
+    skus: Optional[str] = None,  # Comma-separated list of SKUs
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+    limit: int = 100
+):
+    """
+    Sync multiple products to friend's API.
+    
+    - **skus**: Comma-separated list of SKUs (optional)
+    - **category**: Filter by category (optional)
+    - **limit**: Maximum number of products to sync (default: 100)
+    """
+    try:
+        # Build query
+        query = db.query(Product)
+        
+        if skus:
+            sku_list = [sku.strip().upper() for sku in skus.split(",") if sku.strip()]
+            query = query.filter(Product.sku.in_(sku_list))
+        
+        if category:
+            query = query.filter(Product.category == category)
+        
+        # Get products
+        products = query.limit(limit).all()
+        
+        if not products:
+            return {
+                "status": "no_products",
+                "message": "No products found matching criteria",
+                "total_synced": 0
+            }
+        
+        # Sync each product
+        results = []
+        for product in products:
+            try:
+                payload = {
+                    "sku": product.sku,
+                    "name": product.name,
+                    "category": product.category,
+                    "quantity": product.quantity,
+                    "price": float(product.price) if product.price else None,
+                    "tags": product.tags or []
+                }
+                
+                result = friend_client.send_product(payload)
+                results.append({
+                    "sku": product.sku,
+                    "status": result.get("status", "unknown"),
+                    "error": result.get("error") if result.get("status") == "error" else None
+                })
+                
+            except Exception as e:
+                results.append({
+                    "sku": product.sku,
+                    "status": "error",
+                    "error": str(e)
+                })
+        
+        # Calculate summary
+        successful = sum(1 for r in results if r["status"] == "success")
+        failed = sum(1 for r in results if r["status"] == "error")
+        
+        return {
+            "total_processed": len(products),
+            "successful": successful,
+            "failed": failed,
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch sync: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Batch sync error: {str(e)}"
+        )
+
+@router.get("/sync/status")
+def get_sync_status(
+    sku: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get sync status information.
+    """
+    # This is a placeholder - you could implement more sophisticated status tracking
+    return {
+        "friend_api_configured": bool(FRIEND_API_URL and FRIEND_API_URL != "https://api.friend.com"),
+        "friend_api_url": FRIEND_API_URL if FRIEND_API_URL != "https://api.friend.com" else "Not configured",
+        "api_key_configured": bool(FRIEND_API_KEY),
+        "timeout_seconds": FRIEND_API_TIMEOUT,
+        "test_product_sku": sku
+    }
+
 
 # ----------------------------
 # CRUD Operations
