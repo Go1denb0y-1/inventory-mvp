@@ -1,8 +1,7 @@
 fastapi
 uvicorn
-sqlalchemy
+SQLALchemy
 pydantic
 psycopg2-binary
-streamlit
 requests
 pandas
