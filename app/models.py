@@ -101,7 +101,8 @@ class Product(Base):
         "Transaction", 
         back_populates="product",
         cascade="all, delete-orphan",
-        lazy="dynamic"  # Use "select" if you want eager loading by default
+        lazy="dynamic",  # Use "select" if you want eager loading by default
+        foreign_keys="Transaction.product_id"
     )
     
     history_entries = relationship(
