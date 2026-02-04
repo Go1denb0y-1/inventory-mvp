@@ -110,6 +110,7 @@ class Product(Base):
         back_populates="product",
         cascade="all, delete-orphan",
         lazy="dynamic"
+        foreign_keys="InventoryHistory"
     )
     
     # Table-level constraints
