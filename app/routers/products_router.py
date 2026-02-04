@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-
+import os
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy import func, and_, or_, desc, asc
 from sqlalchemy.orm import Session, joinedload
@@ -21,7 +21,7 @@ router = APIRouter(
     tags=["Products"]
 )
 
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------
