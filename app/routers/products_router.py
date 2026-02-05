@@ -111,7 +111,7 @@ class FriendAPIClient:
             }
 
 # Create a singleton instance
-friend_client = FriendAPIClient()
+friend_client = FriendAPIClient("https://eoi-b1-1.onrender.com")
 
 # ----------------------------
 # Sync Endpoints
@@ -128,11 +128,11 @@ def sync_product_by_sku(
     - **sku**: Product SKU to sync
     - **force**: If True, sync even if product hasn't changed (default: False)
     """
-    try:
+    
         # Find the product
-        product = db.query(Product).filter(Product.sku == sku.upper()).first()
+    product = db.query(Product).filter(Product.sku == sku.upper()).first()
         
-        if not product:
+    if not product:
             raise HTTPException(
                 status_code=404,
                 detail=f"Product with SKU {sku} not found"
@@ -149,7 +149,7 @@ def sync_product_by_sku(
         #         }
         
         # Prepare payload
-        payload = {
+    payload = {
             "sku": product.sku,
             "name": product.name,
             "category": product.category,
@@ -165,28 +165,69 @@ def sync_product_by_sku(
             "source_system": "inventory_system"
         }
         
-        # Send to friend's API
-        result = friend_client.send_product(payload)
-        
-        # Update sync timestamp if successful (optional)
-        # if result.get("status") == "success" and hasattr(product, 'last_synced_at'):
-        #     product.last_synced_at = datetime.utcnow()
-        #     db.commit()
-        
+# Check if API is configured
+    if not FRIEND_API_URL or FRIEND_API_URL == "https://eoi-b1-1.onrender.com":
         return {
-            "product_sku": sku,
-            "product_name": product.name,
-            "sync_result": result
+            "error": "Friend API not configured",
+            "config_status": "Please set FRIEND_API_URL environment variable",
+            "current_config": {
+                "friend_api_url": FRIEND_API_URL,
+                "friend_api_key_configured": bool(FRIEND_API_KEY)
+            },
+            "payload_preview": payload
+        }
+    
+    try:
+        # Make the request to friend's API
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {FRIEND_API_KEY}" if FRIEND_API_KEY else ""
         }
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error syncing product {sku}: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error syncing product: {str(e)}"
+        # Log what we're sending
+        print(f"🔗 Sending to friend's API: {FRIEND_API_URL}")
+        print(f"📦 Payload: {payload}")
+        
+        response = requests.post(
+            FRIEND_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10
         )
+        
+        # ✅ Return the ACTUAL friend's API response
+        try:
+            friend_response = response.json()
+        except:
+            friend_response = response.text
+            
+        return {
+            "status": "forwarded",
+            "local_status_code": 200,
+            "friend_api_url": FRIEND_API_URL,
+            "friend_status_code": response.status_code,
+            "friend_response": friend_response,
+            "payload_sent": payload
+        }
+        
+    except requests.exceptions.Timeout:
+        return {
+            "error": "Friend API timeout",
+            "friend_api_url": FRIEND_API_URL,
+            "timeout_seconds": 10
+        }
+    except requests.exceptions.ConnectionError:
+        return {
+            "error": "Cannot connect to Friend API",
+            "friend_api_url": FRIEND_API_URL,
+            "check_network": "Verify the URL is reachable"
+        }
+    except Exception as e:
+        return {
+            "error": f"Failed to sync: {str(e)}",
+            "friend_api_url": FRIEND_API_URL,
+            "exception_type": type(e)._name_
+        }
 
 @router.post("/sync/batch")
 def sync_multiple_products(
