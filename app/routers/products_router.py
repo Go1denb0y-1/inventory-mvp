@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ----------------------------
 # Friend's API configuration
-FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://eoi-b1-1.onrender.com")
-FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "https://eoi-b1-1.onrender.com")
+FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://eoi-b1-1.onrender.com/api/product_connect")
+FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "https://eoi-b1-1.onrender.com/api/product_connect")
 FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))  # seconds
 
 # ----------------------------
@@ -111,7 +111,7 @@ class FriendAPIClient:
             }
 
 # Create a singleton instance
-friend_client = FriendAPIClient("https://eoi-b1-1.onrender.com")
+friend_client = FriendAPIClient("https://eoi-b1-1.onrender.com/api/product_connect")
 
 # ----------------------------
 # Sync Endpoints
@@ -166,7 +166,7 @@ def sync_product_by_sku(
         }
         
 # Check if API is configured
-    if not FRIEND_API_URL or FRIEND_API_URL == "https://eoi-b1-1.onrender.com":
+    if not FRIEND_API_URL or FRIEND_API_URL == "https://eoi-b1-1.onrender.com/api/product_connect":
         return {
             "error": "Friend API not configured",
             "config_status": "Please set FRIEND_API_URL environment variable",
@@ -319,8 +319,8 @@ def get_sync_status(
     """
     # This is a placeholder - you could implement more sophisticated status tracking
     return {
-        "friend_api_configured": bool(FRIEND_API_URL and FRIEND_API_URL != "https://api.friend.com"),
-        "friend_api_url": FRIEND_API_URL if FRIEND_API_URL != "https://api.friend.com" else "Not configured",
+        "friend_api_configured": bool(FRIEND_API_URL and FRIEND_API_URL != "https://eoi-b1-1.onrender.com/api/product_connect"),
+        "friend_api_url": FRIEND_API_URL if FRIEND_API_URL != "https://eoi-b1-1.onrender.com/api/product_connect" else "Not configured",
         "api_key_configured": bool(FRIEND_API_KEY),
         "timeout_seconds": FRIEND_API_TIMEOUT,
         "test_product_sku": sku
