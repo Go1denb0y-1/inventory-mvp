@@ -25,6 +25,14 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+@router.get("/debug")
+def debug():
+    return {
+        "FRIEND_API_URL": os.getenv("FRIEND_API_URL")
+    }
+
+
+
 # ----------------------------
 # Configuration
 # ----------------------------
@@ -188,11 +196,10 @@ def sync_product_by_sku(
         print(f"🔗 Sending to friend's API: {FRIEND_API_URL}")
         print(f"📦 Payload: {payload}")
         
+        friend_url = os.getenv("FRIEND_API_URL")
+
         response = requests.post(
-            FRIEND_API_URL,
-            json=payload,
-            headers=headers,
-            timeout=10
+            f"{friend_url}/api/product_connect"
         )
         
         # ✅ Return the ACTUAL friend's API response

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+import os
 from app.database import engine
 from app.models import Base
 
@@ -57,3 +57,4 @@ app.include_router(rfid_router.router, prefix="/api/v1", tags=["RFID"])
 app.include_router(transactions_router.router, prefix="/api/v1", tags=["Transactions"])
 app.include_router(history_router.router, prefix="/api/v1", tags=["History"])
 app.include_router(analytics_router.router, prefix="/api/v1", tags=["Analytics"])
+
