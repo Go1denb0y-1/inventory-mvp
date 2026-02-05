@@ -2,8 +2,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 import os
+import requests
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
-from sqlalchemy import func, and_, or_, desc, asc
+from sqlalchemy import func, case, and_, or_, desc, asc
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 

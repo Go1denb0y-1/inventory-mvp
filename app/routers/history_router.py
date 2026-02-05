@@ -3,7 +3,7 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from sqlalchemy import and_, or_, desc, asc, func
+from sqlalchemy import and_, case, or_, desc, asc, func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 

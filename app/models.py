@@ -102,7 +102,7 @@ class Product(Base):
         back_populates="product",
         cascade="all, delete-orphan",
         lazy="dynamic",  # Use "select" if you want eager loading by default
-        foreign_keys="Transaction.product_id"
+        foreign_keys="Transaction.product_sku"
     )
     
     history_entries = relationship(
@@ -110,7 +110,7 @@ class Product(Base):
         back_populates="product",
         cascade="all, delete-orphan",
         lazy="dynamic",
-        foreign_keys="InventoryHistory"
+        foreign_keys="InventoryHistory.product_sku"
     )
     
     # Table-level constraints
@@ -208,7 +208,7 @@ class Transaction(Base):
     product = relationship(
         "Product",
         back_populates="transactions",
-        foreign_keys=[product_id]  # Specify foreign key to avoid ambiguity
+        foreign_keys=[product_sku]  # Specify foreign key to avoid ambiguity
     )
     
     # Table-level constraints
@@ -277,7 +277,7 @@ class InventoryHistory(Base):
     product = relationship(
         "Product",
         back_populates="history_entries",
-        foreign_keys=[product_id]
+        foreign_keys=[product_sku]
     )
     
     transaction = relationship(
@@ -326,7 +326,11 @@ class RFIDTag(Base):
     notes = Column(String(500))
     
     # Relationship
-    product = relationship("Product", backref=backref("rfid_tags", lazy="dynamic"))
+    product = relationship(
+        "Product", 
+        backref="rfid_tags",  
+        foreign_keys=[product_sku]
+        )
     
     __table_args__ = (
         Index('idx_rfid_active', 'tag_uid', 'is_active'),

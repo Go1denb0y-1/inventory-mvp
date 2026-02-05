@@ -35,9 +35,17 @@ class SourceType(str, Enum):
 class ProductBase(BaseModel):
     name: str
     category: Optional[str] = None
-    quantity: int = 0
+    quantity: int = Field(0, ge=0)
     rfid_tag: Optional[str] = None
-    price: Optional[float] = None
+    price: Optional[Decimal] = Field(None, ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0)
+    barcode: Optional[str] = None
+    location: Optional[str] = None
+    supplier: Optional[str] = None
+    min_quantity: Optional[int] = Field(None, ge=0)
+    max_quantity: Optional[int] = Field(None, ge=0)
+    reorder_point: Optional[int] = Field(None, ge=0)
+    is_active: bool = True
     tags: List[str] = Field(default_factory=list)
 
 class ProductCreate(ProductBase):
@@ -46,13 +54,23 @@ class ProductCreate(ProductBase):
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
-    price: Optional[float] = None
+    quantity: Optional[int] = Field(None, ge=0)
+    price: Optional[Decimal] = Field(None, ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0)
+    barcode: Optional[str] = None
+    location: Optional[str] = None
+    supplier: Optional[str] = None
+    min_quantity: Optional[int] = Field(None, ge=0)
+    max_quantity: Optional[int] = Field(None, ge=0)
+    reorder_point: Optional[int] = Field(None, ge=0)
+    is_active: bool = True
     tags: Optional[List[str]] = None
     rfid_tag: Optional[str] = None
 
 class ProductOut(ProductBase):
     id: int
     sku: str
+    is_low_stock: bool = False
     created_at: datetime
     updated_at: datetime
 
