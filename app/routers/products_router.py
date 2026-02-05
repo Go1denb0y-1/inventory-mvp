@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ----------------------------
 # Friend's API configuration
-FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://api.friend.com")
+FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://eoi-b1-1.onrender.com")
 FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
 FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))  # seconds
 
