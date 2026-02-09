@@ -1,4 +1,5 @@
 from typing import List, Optional, Dict, Any
+import time
 from datetime import datetime
 from decimal import Decimal
 import os
@@ -196,26 +197,23 @@ def sync_product_by_sku(
         print(f"🔗 Sending to friend's API: {FRIEND_API_URL}")
         print(f"📦 Payload: {payload}")
         
-        friend_url = os.getenv("FRIEND_API_URL")
+        friend_client = FriendAPIClient()
+        result = friend_client.send_product(payload)
 
-        response = requests.post(
-            f"{friend_url}/api/product_connect"
-        )
-        
-        # ✅ Return the ACTUAL friend's API response
-        try:
-            friend_response = response.json()
-        except:
-            friend_response = response.text
-            
         return {
-            "status": "forwarded",
-            "local_status_code": 200,
-            "friend_api_url": FRIEND_API_URL,
-            "friend_status_code": response.status_code,
-            "friend_response": friend_response,
-            "payload_sent": payload
+            "status": result.get("status"),
+            "local_status_code": 200 if result.get("status") == "success" else 500,
+            "friend_api_url": friend_client.base_url,
+            "friend_status_code": result.get("status_code"),
+            "friend_response": (
+                result.get("friend_api_response")
+                or result.get("details")
+                or result.get("error")
+            ),
+            "payload_sent": payload,
+            "time_elapsed": result.get("time_elapsed"),
         }
+
         
     except requests.exceptions.Timeout:
         return {
@@ -233,7 +231,7 @@ def sync_product_by_sku(
         return {
             "error": f"Failed to sync: {str(e)}",
             "friend_api_url": FRIEND_API_URL,
-            "exception_type": type(e)._name_
+            "exception_type": type(e).__name__
         }
 
 @router.post("/sync/batch")
@@ -1261,4 +1259,3 @@ def get_product_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error while fetching statistics: {str(e)}"
         )  
-
