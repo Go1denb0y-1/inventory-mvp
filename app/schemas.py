@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Optional, List, Literal, Dict, Any
 from datetime import datetime
 from decimal import Decimal
@@ -6,7 +6,7 @@ from enum import Enum
 import re
 
 # ----------------------------
-# Enums (to match models)
+# Enums
 # ----------------------------
 class TransactionType(str, Enum):
     IN = "IN"
@@ -29,9 +29,34 @@ class SourceType(str, Enum):
     SYSTEM = "SYSTEM"
     IMPORT = "IMPORT"
 
-# ----------------------------
-# Product Schemas
-# ----------------------------
+# ---------------------------------------------------------
+# 1. THE SYNC PAYLOAD (EXACTLY AS YOU REQUESTED)
+# ---------------------------------------------------------
+class ProductPayload(BaseModel):
+    """
+    This is the strict schema for the Friend API.
+    It ONLY contains the fields you explicitly asked for.
+    """
+    sku: str = Field(..., description="Product SKU (string)")
+    name: str
+    category: Optional[str] = None
+    quantity: int
+    rfid_tag: Optional[str] = None
+    price: Optional[float] = None  # Float as requested
+    cost: Optional[float] = None   # Float as requested
+    tags: List[str] = []
+    location: Optional[str] = None
+    supplier: Optional[str] = None
+    is_active: bool = True
+    last_updated: Optional[datetime] = None
+    source_system: str
+
+    # This allows us to convert a DB object into this payload easily
+    model_config = ConfigDict(from_attributes=True)
+
+# ---------------------------------------------------------
+# 2. INTERNAL DATABASE SCHEMAS (WITH EXTRA LOGIC)
+# ---------------------------------------------------------
 class ProductBase(BaseModel):
     name: str
     category: Optional[str] = None
@@ -47,9 +72,15 @@ class ProductBase(BaseModel):
     reorder_point: Optional[int] = Field(None, ge=0)
     is_active: bool = True
     tags: List[str] = Field(default_factory=list)
+    source_system: str = "LOCAL" # Ensure DB always has a value for the sync
 
 class ProductCreate(ProductBase):
     sku: str
+    
+    @field_validator('sku')
+    @classmethod
+    def validate_sku(cls, v: str) -> str:
+        return v.upper().strip()
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
@@ -66,6 +97,7 @@ class ProductUpdate(BaseModel):
     is_active: bool = True
     tags: Optional[List[str]] = None
     rfid_tag: Optional[str] = None
+    source_system: Optional[str] = None # Allow updating source
 
 class ProductOut(ProductBase):
     id: int
@@ -74,8 +106,9 @@ class ProductOut(ProductBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+# ... (Keep the rest of your RFID, Transaction, and History schemas as they were)
 # ----------------------------
 # RFID Schemas
 # ----------------------------

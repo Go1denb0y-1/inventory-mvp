@@ -14,7 +14,7 @@ import requests
 from app.database import get_db
 from app.models import Product, Transaction, InventoryHistory, ChangeType, SourceType, TransactionType
 from app.schemas import (
-    ProductCreate, ProductOut, ProductUpdate,
+    ProductCreate, ProductOut, ProductUpdate, ProductPayload,
     ProductImport, ImportResult, SuccessResponse, ErrorResponse,
     BulkOperationResult, PaginationParams, SearchQuery
 )
@@ -37,20 +37,7 @@ FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
 FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))
 
 
-class ProductPayload(BaseModel):
-    sku: str = Field(..., description="Product SKU (string)")
-    name: str
-    category: Optional[str] = None
-    quantity: int
-    rfid_tag: Optional[str] = None
-    price: Optional[float] = None
-    cost: Optional[float] = None
-    tags: List[str] = []
-    location: Optional[str] = None
-    supplier: Optional[str] = None
-    is_active: bool = True
-    last_updated: Optional[datetime] = None
-    source_system: str
+
 
 
 class FriendAPIClient:
