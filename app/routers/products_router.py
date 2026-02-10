@@ -20,10 +20,7 @@ from app.schemas import (
 )
 
 
-router = APIRouter(
-    prefix="/products",
-    tags=["Products"]
-)
+router = APIRouter(prefix="/sync", tags=["Products"])
 
 logger = logging.getLogger(__name__)
 
