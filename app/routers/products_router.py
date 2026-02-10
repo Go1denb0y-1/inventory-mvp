@@ -1,14 +1,16 @@
 from typing import List, Optional, Dict, Any
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-import os
-import requests
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, case, and_, or_, desc, asc
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-
+import time
+import logging
+import os
+import requests
 from app.database import get_db
 from app.models import Product, Transaction, InventoryHistory, ChangeType, SourceType, TransactionType
 from app.schemas import (
@@ -16,320 +18,128 @@ from app.schemas import (
     ProductImport, ImportResult, SuccessResponse, ErrorResponse,
     BulkOperationResult, PaginationParams, SearchQuery
 )
-import logging
+
 
 router = APIRouter(
     prefix="/products",
-    tags=["Products"]
+    tags=["Inventory History"]
 )
 
 logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/sync",
+    tags=["Sync"])
+
+# Config from environment (set these when deploying)
+FRIEND_API_URL = os.getenv(
+    "FRIEND_API_URL", "https://eoi-b1-1.onrender.com/api/product_connect"
+)
+FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
+FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))
 
 
-@router.get("/debug")
-def debug():
-    return {
-        "FRIEND_API_URL": os.getenv("FRIEND_API_URL")
-    }
+class ProductPayload(BaseModel):
+    sku: str = Field(..., description="Product SKU (string)")
+    name: str
+    category: Optional[str] = None
+    quantity: int
+    rfid_tag: Optional[str] = None
+    price: Optional[float] = None
+    cost: Optional[float] = None
+    tags: List[str] = []
+    location: Optional[str] = None
+    supplier: Optional[str] = None
+    is_active: bool = True
+    last_updated: Optional[datetime] = None
+    source_system: str
 
 
-
-# ----------------------------
-# Configuration
-# ----------------------------
-# Friend's API configuration
-FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://eoi-b1-1.onrender.com/api/product_connect")
-FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "https://eoi-b1-1.onrender.com/api/product_connect")
-FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))  # seconds
-
-# ----------------------------
-# Friend API Client
-# ----------------------------
 class FriendAPIClient:
-    """Client for communicating with friend's API"""
-    
-    def __init__(self, base_url: str = None, api_key: str = None):
-        self.base_url = base_url or FRIEND_API_URL
+    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None, timeout: int = FRIEND_API_TIMEOUT):
+        self.base_url = (url or FRIEND_API_URL).rstrip("/")
         self.api_key = api_key or FRIEND_API_KEY
-        self.timeout = FRIEND_API_TIMEOUT
-        self.headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
-        }
-    
-    def send_product(self, product_data: dict) -> dict:
-        """
-        Send product data to friend's API
-        """
+        self.timeout = timeout
+        self.headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            self.headers["Authorization"] = f"Bearer {self.api_key}"
+
+    def send_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+        """POST the product_data to the friend endpoint. Returns a dict with status and details."""
         if not self.base_url:
-            logger.warning("Friend API URL not configured")
-            return {"error": "Friend API not configured", "status": "skipped"}
-        
+            return {"status": "error", "error": "Friend API URL not configured"}
+
         try:
-            # Construct the endpoint URL
-            endpoint = f"{self.base_url.rstrip('/')}/products"
-            
-            # Make the request
-            start_time = time.time()
-            response = requests.post(
-                endpoint,
-                json=product_data,
-                headers=self.headers,
-                timeout=self.timeout
-            )
-            elapsed_time = time.time() - start_time
-            
-            # Log the request
-            logger.info(f"Sent product to friend API: {product_data.get('sku')}, "
-                       f"Status: {response.status_code}, Time: {elapsed_time:.2f}s")
-            
-            # Return response
-            if response.status_code in [200, 201]:
-                return {
-                    "status": "success",
-                    "friend_api_response": response.json(),
-                    "status_code": response.status_code,
-                    "time_elapsed": elapsed_time
-                }
-            else:
-                return {
-                    "status": "error",
-                    "error": f"Friend API returned status {response.status_code}",
-                    "details": response.text,
-                    "status_code": response.status_code,
-                    "time_elapsed": elapsed_time
-                }
-                
-        except requests.exceptions.Timeout:
-            logger.error(f"Friend API timeout after {self.timeout}s")
-            return {
-                "status": "error",
-                "error": f"Friend API timeout after {self.timeout}s"
-            }
-        except requests.exceptions.ConnectionError:
-            logger.error("Friend API connection error")
-            return {
-                "status": "error",
-                "error": "Cannot connect to Friend API"
-            }
-        except Exception as e:
-            logger.error(f"Friend API error: {str(e)}")
-            return {
-                "status": "error",
-                "error": str(e)
-            }
+            start = time.time()
+            response = requests.post(self.base_url, json=product_data, headers=self.headers, timeout=self.timeout)
+            elapsed = time.time() - start
 
-# Create a singleton instance
-friend_client = FriendAPIClient("https://eoi-b1-1.onrender.com/api/product_connect")
-
-# ----------------------------
-# Sync Endpoints
-# ----------------------------
-@router.post("/{sku}/sync")
-def sync_product_by_sku(
-    sku: str,
-    db: Session = Depends(get_db),
-    force: bool = False
-):
-    """
-    Sync a specific product to friend's API by SKU.
-    
-    - **sku**: Product SKU to sync
-    - **force**: If True, sync even if product hasn't changed (default: False)
-    """
-    
-        # Find the product
-    product = db.query(Product).filter(Product.sku == sku.upper()).first()
-        
-    if not product:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Product with SKU {sku} not found"
-            )
-        
-        # Check if product has been modified recently (optional optimization)
-        # You could add a `last_synced_at` field to your Product model
-        # if not force and hasattr(product, 'last_synced_at'):
-        #     if product.last_synced_at and product.updated_at <= product.last_synced_at:
-        #         return {
-        #             "status": "skipped",
-        #             "message": "Product hasn't changed since last sync",
-        #             "sku": sku
-        #         }
-        
-        # Prepare payload
-    payload = {
-            "sku": product.sku,
-            "name": product.name,
-            "category": product.category,
-            "quantity": product.quantity,
-            "rfid_tag": product.rfid_tag,
-            "price": float(product.price) if product.price else None,
-            "cost": float(product.cost) if hasattr(product, 'cost') and product.cost else None,
-            "tags": product.tags or [],
-            "location": product.location if hasattr(product, 'location') else None,
-            "supplier": product.supplier if hasattr(product, 'supplier') else None,
-            "is_active": product.is_active if hasattr(product, 'is_active') else True,
-            "last_updated": product.updated_at.isoformat() if product.updated_at else None,
-            "source_system": "inventory_system"
-        }
-        
-# Check if API is configured
-    if not FRIEND_API_URL or FRIEND_API_URL == "https://eoi-b1-1.onrender.com/api/product_connect":
-        return {
-            "error": "Friend API not configured",
-            "config_status": "Please set FRIEND_API_URL environment variable",
-            "current_config": {
-                "friend_api_url": FRIEND_API_URL,
-                "friend_api_key_configured": bool(FRIEND_API_KEY)
-            },
-            "payload_preview": payload
-        }
-    
-    try:
-        # Make the request to friend's API
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {FRIEND_API_KEY}" if FRIEND_API_KEY else ""
-        }
-        
-        # Log what we're sending
-        print(f"🔗 Sending to friend's API: {FRIEND_API_URL}")
-        print(f"📦 Payload: {payload}")
-        
-        friend_client = FriendAPIClient()
-        result = friend_client.send_product(payload)
-
-        return {
-            "status": result.get("status"),
-            "local_status_code": 200 if result.get("status") == "success" else 500,
-            "friend_api_url": friend_client.base_url,
-            "friend_status_code": result.get("status_code"),
-            "friend_response": (
-                result.get("friend_api_response")
-                or result.get("details")
-                or result.get("error")
-            ),
-            "payload_sent": payload,
-            "time_elapsed": result.get("time_elapsed"),
-        }
-
-        
-    except requests.exceptions.Timeout:
-        return {
-            "error": "Friend API timeout",
-            "friend_api_url": FRIEND_API_URL,
-            "timeout_seconds": 10
-        }
-    except requests.exceptions.ConnectionError:
-        return {
-            "error": "Cannot connect to Friend API",
-            "friend_api_url": FRIEND_API_URL,
-            "check_network": "Verify the URL is reachable"
-        }
-    except Exception as e:
-        return {
-            "error": f"Failed to sync: {str(e)}",
-            "friend_api_url": FRIEND_API_URL,
-            "exception_type": type(e).__name__
-        }
-
-@router.post("/sync/batch")
-def sync_multiple_products(
-    skus: Optional[str] = None,  # Comma-separated list of SKUs
-    category: Optional[str] = None,
-    db: Session = Depends(get_db),
-    limit: int = 100
-):
-    """
-    Sync multiple products to friend's API.
-    
-    - **skus**: Comma-separated list of SKUs (optional)
-    - **category**: Filter by category (optional)
-    - **limit**: Maximum number of products to sync (default: 100)
-    """
-    try:
-        # Build query
-        query = db.query(Product)
-        
-        if skus:
-            sku_list = [sku.strip().upper() for sku in skus.split(",") if sku.strip()]
-            query = query.filter(Product.sku.in_(sku_list))
-        
-        if category:
-            query = query.filter(Product.category == category)
-        
-        # Get products
-        products = query.limit(limit).all()
-        
-        if not products:
-            return {
-                "status": "no_products",
-                "message": "No products found matching criteria",
-                "total_synced": 0
-            }
-        
-        # Sync each product
-        results = []
-        for product in products:
             try:
-                payload = {
-                    "sku": product.sku,
-                    "name": product.name,
-                    "category": product.category,
-                    "quantity": product.quantity,
-                    "price": float(product.price) if product.price else None,
-                    "tags": product.tags or []
-                }
-                
-                result = friend_client.send_product(payload)
-                results.append({
-                    "sku": product.sku,
-                    "status": result.get("status", "unknown"),
-                    "error": result.get("error") if result.get("status") == "error" else None
-                })
-                
-            except Exception as e:
-                results.append({
-                    "sku": product.sku,
-                    "status": "error",
-                    "error": str(e)
-                })
-        
-        # Calculate summary
-        successful = sum(1 for r in results if r["status"] == "success")
-        failed = sum(1 for r in results if r["status"] == "error")
-        
-        return {
-            "total_processed": len(products),
-            "successful": successful,
-            "failed": failed,
-            "results": results
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in batch sync: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Batch sync error: {str(e)}"
+                body = response.json()
+            except ValueError:
+                body = response.text
+
+            return {
+                "status": "success" if response.status_code in (200, 201) else "error",
+                "status_code": response.status_code,
+                "response_body": body,
+                "time_elapsed": elapsed,
+            }
+
+        except requests.exceptions.Timeout:
+            return {"status": "error", "error": f"timeout after {self.timeout}s"}
+        except requests.exceptions.ConnectionError:
+            return {"status": "error", "error": "connection error"}
+        except Exception as e:
+            logger.exception("Unexpected error while sending to friend API")
+            return {"status": "error", "error": str(e), "exception_type": type(e).__name__}
+
+
+@router.post("/{sku}/sync", status_code=status.HTTP_200_OK)
+def sync_product_by_sku(sku: str, payload: ProductPayload):
+    """
+    Sync product (payload) to friend API.
+    Path sku is authoritative: payload.sku will be set to path sku.
+    """
+
+    # Enforce path-sku as authoritative
+    payload.sku = sku
+
+    # Convert model to dict and normalize last_updated
+    body = payload.dict()
+    if body.get("last_updated") and isinstance(body["last_updated"], datetime):
+        dt = body["last_updated"]
+        # ensure timezone-aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        body["last_updated"] = dt.isoformat()
+
+    if not FRIEND_API_URL:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Friend API URL not configured")
+
+    client = FriendAPIClient()
+    result = client.send_product(body)
+
+    # Successful forward
+    if result.get("status") == "success" and result.get("status_code") in (200, 201):
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "forwarded",
+                "friend_api_url": client.base_url,
+                "friend_status_code": result.get("status_code"),
+                "friend_response": result.get("response_body"),
+                "time_elapsed": result.get("time_elapsed"),
+            },
         )
 
-@router.get("/sync/status")
-def get_sync_status(
-    sku: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Get sync status information.
-    """
-    # This is a placeholder - you could implement more sophisticated status tracking
-    return {
-        "friend_api_configured": bool(FRIEND_API_URL and FRIEND_API_URL != "https://eoi-b1-1.onrender.com/api/product_connect"),
-        "friend_api_url": FRIEND_API_URL if FRIEND_API_URL != "https://eoi-b1-1.onrender.com/api/product_connect" else "Not configured",
-        "api_key_configured": bool(FRIEND_API_KEY),
-        "timeout_seconds": FRIEND_API_TIMEOUT,
-        "test_product_sku": sku
-    }
+    # Upstream returned non-success or network error
+    detail = result.get("response_body") or result.get("error") or "Unknown error"
+    upstream_status = result.get("status_code") if result.get("status_code") else 502
+
+    # Map socket timeout to 504 for clarity
+    if "timeout" in (result.get("error") or ""):
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=detail)
+
+    raise HTTPException(status_code=upstream_status, detail=detail)
 
 
 # ----------------------------

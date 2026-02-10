@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
+
 from app.database import engine
 from app.models import Base
 
@@ -10,6 +11,7 @@ from app.routers import (
     transactions_router,
     history_router,
     analytics_router,
+    
 )
 
 app = FastAPI(title="Inventory Management System")
@@ -19,7 +21,8 @@ app = FastAPI(title="Inventory Management System")
 # ----------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # MVP only
+    allow_origins=os.getenv("CORS_ALLOW_ORIGINS", "*").split(","),
+    
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
