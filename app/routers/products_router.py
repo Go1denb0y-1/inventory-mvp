@@ -22,7 +22,7 @@ from app.schemas import (
 
 router = APIRouter(
     prefix="/products",
-    tags=["Inventory History"]
+    tags=["Products"]
 )
 
 logger = logging.getLogger(__name__)
