@@ -26,8 +26,6 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/sync",
-    tags=["Sync"])
 
 # Config from environment (set these when deploying)
 FRIEND_API_URL = os.getenv(
