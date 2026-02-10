@@ -79,7 +79,7 @@ class FriendAPIClient:
 
 
 @router.post("/{sku}/sync", status_code=status.HTTP_200_OK)
-def sync_product_by_sku(sku: str, payload: ProductPayload):
+async def sync_product_by_sku(sku: str, payload: ProductPayload):
     """
     Sync product (payload) to friend API.
     Path sku is authoritative: payload.sku will be set to path sku.
@@ -125,6 +125,7 @@ def sync_product_by_sku(sku: str, payload: ProductPayload):
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=detail)
 
     raise HTTPException(status_code=upstream_status, detail=detail)
+    pass
 
 
 # ----------------------------
@@ -321,7 +322,7 @@ def list_products(
     summary="Get product by SKU",
     description="Retrieve a single product by its SKU."
 )
-def get_product(
+async def get_product(
     sku: str,
     db: Session = Depends(get_db),
     include_history: bool = Query(False, description="Include recent inventory history")
@@ -368,6 +369,7 @@ def get_product(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching product: {str(e)}"
         )
+    pass
 
 @router.put(
     "/{sku}",
@@ -375,7 +377,7 @@ def get_product(
     summary="Update product",
     description="Update an existing product. Supports partial updates."
 )
-def update_product(
+async def update_product(
     sku: str,
     product_data: ProductUpdate,
     db: Session = Depends(get_db),
@@ -490,6 +492,7 @@ def update_product(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating product: {str(e)}"
         )
+    pass
 
 @router.delete(
     "/{sku}",
@@ -497,7 +500,7 @@ def update_product(
     summary="Delete product",
     description="Delete a product by SKU. Can be soft or hard delete."
 )
-def delete_product(
+async def delete_product(
     sku: str,
     db: Session = Depends(get_db),
     hard_delete: bool = Query(False, description="Permanently delete instead of deactivating"),
@@ -554,6 +557,7 @@ def delete_product(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting product: {str(e)}"
         )
+    pass
 
 # ----------------------------
 # Search & Filter Operations
@@ -852,7 +856,7 @@ def get_low_stock_products(
     summary="Adjust product quantity",
     description="Adjust product quantity with history tracking."
 )
-def adjust_product_quantity(
+async def adjust_product_quantity(
     sku: str,
     delta: int = Query(..., description="Quantity change (positive for increase, negative for decrease)"),
     reason: str = Query("Manual adjustment", description="Reason for adjustment"),
@@ -921,6 +925,7 @@ def adjust_product_quantity(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error adjusting quantity: {str(e)}"
         )
+    pass
 
 @router.put(
     "/{sku}/activate",
@@ -928,7 +933,7 @@ def adjust_product_quantity(
     summary="Activate product",
     description="Activate a previously deactivated product."
 )
-def activate_product(
+async def activate_product(
     sku: str,
     db: Session = Depends(get_db)
 ):
@@ -968,6 +973,7 @@ def activate_product(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error activating product: {str(e)}"
         )
+    pass
 
 # ----------------------------
 # Statistics & Analytics
