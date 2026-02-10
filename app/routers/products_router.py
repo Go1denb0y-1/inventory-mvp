@@ -29,7 +29,7 @@ FRIEND_API_URL = os.getenv(
     "FRIEND_API_URL", "https://eoi-b1-1.onrender.com/api/product_connect"
 )
 FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
-FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))
+FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "100"))
 
 
 
