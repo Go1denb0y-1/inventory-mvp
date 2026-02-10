@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
-
+from contextlib import asynccontextmanager
 from app.database import engine
 from app.models import Base
 
@@ -31,10 +31,22 @@ app.add_middleware(
 # ----------------------------
 # Startup event
 # ----------------------------
-@app.on_event("startup")
-def on_startup():
-    
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- STARTUP: Runs when the app starts ---
+    # 1. Create Tables
     Base.metadata.create_all(bind=engine)
+    
+    # 2. DEBUG: Log every registered route to the console
+    print("\n--- REGISTERED ROUTES ---")
+    for route in app.routes:
+        methods = ", ".join(route.methods) if hasattr(route, 'methods') else "N/A"
+        print(f"PATH: {route.path:40} | METHODS: {methods}")
+    print("-------------------------\n")
+    
+    yield
+    # --- SHUTDOWN: Runs when the app stops ---
+    pass
 
 # ----------------------------
 # Health & root endpoints
