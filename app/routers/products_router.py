@@ -20,7 +20,7 @@ from app.schemas import (
 )
 
 
-router = APIRouter(prefix="/sync", tags=["Products"])
+router = APIRouter(prefix="/products", tags=["Products"])
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class FriendAPIClient:
 
 
 @router.post("/{sku}/sync", status_code=status.HTTP_200_OK)
-async def sync_product_by_sku(sku: str, payload: ProductPayload):
+async def sync_product_by_sku(sku: str, payload: ProductPayload,db: Session = Depends(get_db)):
     """
     Sync product (payload) to friend API.
     Path sku is authoritative: payload.sku will be set to path sku.
