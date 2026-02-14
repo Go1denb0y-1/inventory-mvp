@@ -25,7 +25,7 @@ FRIEND_API_URL = os.getenv(
     "https://eoi-b1-1.onrender.com/api/product_connect"
 )
 FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
-FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "10"))
+FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "60"))
 
 
 # ------------------------------
@@ -40,16 +40,18 @@ class FriendAPIClient:
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def send_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Post product_data as JSON. Returns a structured dict, never raises."""
-        if not self.base_url:
-            return {"status": "error", "error": "Friend API URL not configured"}
+def send_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+    if not self.base_url:
+        return {"status": "error", "error": "Friend API URL not configured"}
 
+    for attempt in range(3):
         try:
-            logger.debug("Sending payload to friend api: %s", product_data)
-            start = time.time()
-            resp = requests.post(self.base_url, json=product_data, headers=self.headers, timeout=self.timeout)
-            elapsed = time.time() - start
+            resp = requests.post(
+                self.base_url,
+                json=product_data,
+                headers=self.headers,
+                timeout=self.timeout
+            )
 
             try:
                 body = resp.json()
@@ -60,16 +62,17 @@ class FriendAPIClient:
                 "status": "success" if resp.status_code in (200, 201) else "error",
                 "status_code": resp.status_code,
                 "response_body": body,
-                "time_elapsed": elapsed,
+                "attempt": attempt + 1
             }
 
         except requests.exceptions.Timeout:
-            return {"status": "error", "error": f"timeout after {self.timeout}s"}
-        except requests.exceptions.ConnectionError:
-            return {"status": "error", "error": "connection error"}
+            if attempt < 2:
+                time.sleep(2)  # wait before retry
+                continue
+            return {"status": "error", "error": "timeout after retries"}
+
         except Exception as e:
-            logger.exception("Unexpected error while sending to friend API")
-            return {"status": "error", "error": str(e), "exception_type": type(e).__name__}
+            return {"status": "error", "error": str(e)}
 
 
 # ------------------------------
