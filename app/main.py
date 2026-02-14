@@ -69,8 +69,8 @@ def db_test():
 # ----------------------------
 # Temporary change in main.py
 app.include_router(products_router.router, prefix="/api/v1/test-products", tags=["Products"])
-app.include_router(rfid_router.router, prefix="/api/v1", tags=["RFID"])
+# app.include_router(rfid_router.router, prefix="/api/v1", tags=["RFID"])
 app.include_router(transactions_router.router, prefix="/api/v1", tags=["Transactions"])
-app.include_router(history_router.router, prefix="/api/v1", tags=["History"])
-app.include_router(analytics_router.router, prefix="/api/v1", tags=["Analytics"])
+# app.include_router(history_router.router, prefix="/api/v1", tags=["History"])
+# app.include_router(analytics_router.router, prefix="/api/v1", tags=["Analytics"])
 
