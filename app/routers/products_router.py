@@ -104,7 +104,13 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
         ):
             raise HTTPException(status_code=400, detail="Minimum quantity cannot exceed maximum quantity")
 
-        product_dict = product_data.dict(exclude_unset=True)
+        allowed_fields = {c.name for c in Product.__table__.columns}
+
+        product_dict = {
+            k: v for k, v in product_data.dict(exclude_unset=True).items()
+            if k in allowed_fields
+        }
+
         product_dict["sku"] = sku
 
         if product_dict.get("rfid_tag"):
