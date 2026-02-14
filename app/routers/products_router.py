@@ -31,6 +31,12 @@ FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "60"))
 # ------------------------------
 # Friend API client (sync)
 # ------------------------------
+# add this import with your other imports
+from fastapi.encoders import jsonable_encoder
+
+# ------------------------------
+# Friend API client (sync, with retries)
+# ------------------------------
 class FriendAPIClient:
     def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None, timeout: int = FRIEND_API_TIMEOUT):
         self.base_url = (url or FRIEND_API_URL).rstrip("/")
@@ -40,44 +46,74 @@ class FriendAPIClient:
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-def send_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
-    if not self.base_url:
-        return {"status": "error", "error": "Friend API URL not configured"}
+    def send_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Send JSON payload to the friend API.
+        Returns a dict describing success/error and never raises.
+        This implementation includes a small retry loop to handle cold starts/timeouts.
+        """
+        if not self.base_url:
+            return {"status": "error", "error": "Friend API URL not configured"}
 
-    for attempt in range(3):
-        try:
-            resp = requests.post(
-                self.base_url,
-                json=product_data,
-                headers=self.headers,
-                timeout=self.timeout
-            )
+        max_attempts = 3
+        backoff_seconds = 2
 
+        for attempt in range(1, max_attempts + 1):
             try:
-                body = resp.json()
-            except ValueError:
-                body = resp.text
+                logger.debug("FriendAPIClient attempt %s sending to %s payload keys=%s", attempt, self.base_url, list(product_data.keys()))
+                start = time.time()
+                resp = requests.post(self.base_url, json=product_data, headers=self.headers, timeout=self.timeout)
+                elapsed = time.time() - start
 
-            return {
-                "status": "success" if resp.status_code in (200, 201) else "error",
-                "status_code": resp.status_code,
-                "response_body": body,
-                "attempt": attempt + 1
-            }
+                try:
+                    body = resp.json()
+                except ValueError:
+                    body = resp.text
 
-        except requests.exceptions.Timeout:
-            if attempt < 2:
-                time.sleep(2)  # wait before retry
-                continue
-            return {"status": "error", "error": "timeout after retries"}
+                status = "success" if resp.status_code in (200, 201) else "error"
+                return {
+                    "status": status,
+                    "status_code": resp.status_code,
+                    "response_body": body,
+                    "time_elapsed": elapsed,
+                    "attempt": attempt
+                }
 
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+            except requests.exceptions.Timeout:
+                logger.warning("FriendAPIClient timeout on attempt %s (timeout=%ss)", attempt, self.timeout)
+                if attempt < max_attempts:
+                    time.sleep(backoff_seconds)
+                    continue
+                return {"status": "error", "error": f"timeout after {self.timeout}s (attempts={max_attempts})"}
+
+            except requests.exceptions.ConnectionError as ce:
+                logger.warning("FriendAPIClient connection error on attempt %s: %s", attempt, str(ce))
+                if attempt < max_attempts:
+                    time.sleep(backoff_seconds)
+                    continue
+                return {"status": "error", "error": "connection error"}
+
+            except Exception as e:
+                logger.exception("Unexpected error in FriendAPIClient on attempt %s", attempt)
+                return {"status": "error", "error": str(e), "exception_type": type(e).__name__}
 
 
 # ------------------------------
 # CREATE PRODUCT (fixed + safe friend sync)
 # ------------------------------
+@router.post("/test-friend-sync")
+def test_friend_sync():
+    test_payload = {
+        "sku": "TEST123",
+        "name": "Integration Test Product",
+        "price": 1.00
+    }
+
+    friend_client = FriendAPIClient()
+    response = friend_client.send_product(test_payload)
+
+    return response
+
 @router.post("/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     """
@@ -85,101 +121,81 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     Friend API failures do NOT roll back the local DB transaction.
     """
     try:
+        # -------------------------
+        # Basic validation
+        # -------------------------
         sku = product_data.sku.upper().strip()
-
         existing = db.query(Product).filter(Product.sku == sku).first()
         if existing:
             raise HTTPException(status_code=400, detail=f"Product with SKU '{sku}' already exists")
-
         if product_data.quantity is not None and product_data.quantity < 0:
             raise HTTPException(status_code=400, detail="Quantity cannot be negative")
-
         if product_data.price is not None and product_data.price <= 0:
             raise HTTPException(status_code=400, detail="Price must be positive")
-
         if product_data.cost is not None and product_data.cost <= 0:
             raise HTTPException(status_code=400, detail="Cost must be positive")
-
-        if (
-            product_data.min_quantity is not None
-            and product_data.max_quantity is not None
-            and product_data.min_quantity > product_data.max_quantity
-        ):
+        if product_data.min_quantity and product_data.max_quantity and product_data.min_quantity > product_data.max_quantity:
             raise HTTPException(status_code=400, detail="Minimum quantity cannot exceed maximum quantity")
 
+        # -------------------------
+        # Filter allowed fields
+        # -------------------------
         allowed_fields = {c.name for c in Product.__table__.columns}
-
-        product_dict = {
-            k: v for k, v in product_data.dict(exclude_unset=True).items()
-            if k in allowed_fields
-        }
-
+        product_dict = {k: v for k, v in product_data.dict(exclude_unset=True).items() if k in allowed_fields}
         product_dict["sku"] = sku
 
         if product_dict.get("rfid_tag"):
             rfid_tag = product_dict["rfid_tag"].upper().strip()
-            existing_rfid = db.query(Product).filter(
-                Product.rfid_tag == rfid_tag,
-                Product.rfid_tag.isnot(None)
-            ).first()
+            existing_rfid = db.query(Product).filter(Product.rfid_tag == rfid_tag).first()
             if existing_rfid:
                 raise HTTPException(status_code=400, detail=f"RFID '{rfid_tag}' already assigned")
-
             product_dict["rfid_tag"] = rfid_tag
 
-        product_dict["is_low_stock"] = (
-            product_dict.get("quantity", 0)
-            <= product_dict.get("min_quantity", 0)
-            if product_dict.get("min_quantity") is not None
-            else False
-        )
+        product_dict["is_low_stock"] = product_dict.get("quantity", 0) <= product_dict.get("min_quantity", 0) if product_dict.get("min_quantity") else False
 
+        # -------------------------
+        # Create product
+        # -------------------------
         product = Product(**product_dict)
-
         db.add(product)
         db.commit()
         db.refresh(product)
 
-        # --- Friend sync: build a ProductPayload instance from the committed product ---
+        # -------------------------
+        # Build payload for friend API
+        # -------------------------
         try:
-            # normalize values safely
             payload_obj = ProductPayload(
                 sku=product.sku,
-                name=getattr(product, "name", None),
-                category=getattr(product, "category", None),
-                quantity=int(getattr(product, "quantity", 0) or 0),
-                rfid_tag=getattr(product, "rfid_tag", None),
-                price=float(product.price) if getattr(product, "price", None) is not None else None,
-                cost=float(product.cost) if getattr(product, "cost", None) is not None else None,
-                tags=getattr(product, "tags", []) or [],
-                location=getattr(product, "location", None),
-                supplier=getattr(product, "supplier", None),
-                is_active=bool(getattr(product, "is_active", True)),
-                # send an ISO string for last_updated if available
-                last_updated=(getattr(product, "updated_at", None) or getattr(product, "created_at", None) or datetime.now(timezone.utc)).isoformat(),
+                name=product.name,
+                category=product.category,
+                quantity=int(product.quantity or 0),
+                rfid_tag=product.rfid_tag,
+                price=float(product.price) if product.price is not None else None,
+                cost=float(product.cost) if product.cost is not None else None,
+                tags=product.tags or [],
+                location=product.location,
+                supplier=product.supplier,
+                is_active=product.is_active,
+                last_updated=product.updated_at or product.created_at or datetime.now(timezone.utc),
                 source_system=os.getenv("SERVICE_NAME", "inventory_system")
             )
-        except Exception:
-            # If constructing ProductPayload fails, log and continue (don't break creation).
-            logger.exception("Failed to construct ProductPayload for friend sync; skipping sync")
-            payload_obj = None
-
-        
-
-        if payload_obj is not None:
-            friend_client = FriendAPIClient()
 
             encoded_payload = jsonable_encoder(payload_obj)
-
+            friend_client = FriendAPIClient()
             friend_response = friend_client.send_product(encoded_payload)
 
-            # Log and do NOT raise or rollback on friend API failure.
             if friend_response.get("status") != "success":
                 logger.warning("Friend API sync failed for SKU=%s: %s", product.sku, friend_response)
             else:
-                logger.info("Friend API sync success for SKU=%s (status=%s)", product.sku, friend_response.get("status_code"))
+                logger.info("Friend API sync success for SKU=%s", product.sku)
 
-        # Create inventory history entry for initial quantity
+        except Exception:
+            logger.exception("Failed to send product to friend API; skipping sync")
+
+        # -------------------------
+        # Create initial inventory history
+        # -------------------------
         if product.quantity and product.quantity > 0:
             history = InventoryHistory(
                 product_id=product.id,
