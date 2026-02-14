@@ -2,7 +2,7 @@ import os
 import time
 import requests
 import logging
-
+from fastapi.encoders import jsonable_encoder
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -161,9 +161,14 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
             logger.exception("Failed to construct ProductPayload for friend sync; skipping sync")
             payload_obj = None
 
+        
+
         if payload_obj is not None:
             friend_client = FriendAPIClient()
-            friend_response = friend_client.send_product(payload_obj.dict())
+
+            encoded_payload = jsonable_encoder(payload_obj)
+
+            friend_response = friend_client.send_product(encoded_payload)
 
             # Log and do NOT raise or rollback on friend API failure.
             if friend_response.get("status") != "success":
