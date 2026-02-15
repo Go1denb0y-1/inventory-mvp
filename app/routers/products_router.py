@@ -24,7 +24,7 @@ FRIEND_API_URL = os.getenv(
     "FRIEND_API_URL",
     "https://eoi-b1-1.onrender.com/api/product_connect"
 )
-FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "")
+FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "https://eoi-b1-1.onrender.com/api/product_connect")
 FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "60"))
 
 
@@ -46,56 +46,27 @@ class FriendAPIClient:
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def send_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_to_friend_api(self, product_payload: Dict) -> bool:
         """
-        Send JSON payload to the friend API.
-        Returns a dict describing success/error and never raises.
-        This implementation includes a small retry loop to handle cold starts/timeouts.
+        Sends the product payload to the friend API.
+        Returns True if successful, False otherwise.
         """
-        if not self.base_url:
-            return {"status": "error", "error": "Friend API URL not configured"}
-
-        max_attempts = 3
-        backoff_seconds = 2
-
-        for attempt in range(1, max_attempts + 1):
-            try:
-                logger.debug("FriendAPIClient attempt %s sending to %s payload keys=%s", attempt, self.base_url, list(product_data.keys()))
-                start = time.time()
-                resp = requests.post(self.base_url, json=product_data, headers=self.headers, timeout=self.timeout)
-                elapsed = time.time() - start
-
-                try:
-                    body = resp.json()
-                except ValueError:
-                    body = resp.text
-
-                status = "success" if resp.status_code in (200, 201) else "error"
-                return {
-                    "status": status,
-                    "status_code": resp.status_code,
-                    "response_body": body,
-                    "time_elapsed": elapsed,
-                    "attempt": attempt
-                }
-
-            except requests.exceptions.Timeout:
-                logger.warning("FriendAPIClient timeout on attempt %s (timeout=%ss)", attempt, self.timeout)
-                if attempt < max_attempts:
-                    time.sleep(backoff_seconds)
-                    continue
-                return {"status": "error", "error": f"timeout after {self.timeout}s (attempts={max_attempts})"}
-
-            except requests.exceptions.ConnectionError as ce:
-                logger.warning("FriendAPIClient connection error on attempt %s: %s", attempt, str(ce))
-                if attempt < max_attempts:
-                    time.sleep(backoff_seconds)
-                    continue
-                return {"status": "error", "error": "connection error"}
-
-            except Exception as e:
-                logger.exception("Unexpected error in FriendAPIClient on attempt %s", attempt)
-                return {"status": "error", "error": str(e), "exception_type": type(e).__name__}
+        try:
+            resp = requests.post(
+                self.base_url,
+                json=product_payload,
+                headers=self.headers,
+                timeout=self.timeout
+            )
+            if resp.status_code in (200, 201):
+                logger.info("Friend API sync success")
+                return True
+            else:
+                logger.warning("Friend API returned status %s: %s", resp.status_code, resp.text)
+                return False
+        except Exception as e:
+            logger.exception("Friend API sync failed: %s", str(e))
+            return False
 
 
 # ------------------------------
