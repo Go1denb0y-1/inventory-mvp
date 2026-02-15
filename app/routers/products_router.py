@@ -46,7 +46,7 @@ class FriendAPIClient:
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def send_product(self, product_payload: Dict) -> bool:
+    def send_product(self, product_payload: Dict) -> Dict:
         """
         Sends the product payload to the friend API.
         Returns True if successful, False otherwise.
