@@ -101,7 +101,7 @@ class FriendAPIClient:
 # ------------------------------
 # CREATE PRODUCT (fixed + safe friend sync)
 # ------------------------------
-@router.post("/test-friend-sync")
+@router.post("/product_connect")
 def test_friend_sync():
     test_payload = {
         "sku": "TEST123",
@@ -134,13 +134,14 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Price must be positive")
         if product_data.cost is not None and product_data.cost <= 0:
             raise HTTPException(status_code=400, detail="Cost must be positive")
-        if product_data.min_quantity and product_data.max_quantity and product_data.min_quantity > product_data.max_quantity:
-            raise HTTPException(status_code=400, detail="Minimum quantity cannot exceed maximum quantity")
 
         # -------------------------
         # Filter allowed fields
         # -------------------------
-        allowed_fields = {c.name for c in Product.__table__.columns}
+        # Exclude unwanted fields explicitly
+        excluded_fields = {"id", "created_at", "updated_at", "is_low_stock", "reorder_point", "max_quantity", "min_quantity", "barcode"}
+        allowed_fields = {c.name for c in Product.__table__.columns if c.name not in excluded_fields}
+
         product_dict = {k: v for k, v in product_data.dict(exclude_unset=True).items() if k in allowed_fields}
         product_dict["sku"] = sku
 
@@ -150,8 +151,6 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
             if existing_rfid:
                 raise HTTPException(status_code=400, detail=f"RFID '{rfid_tag}' already assigned")
             product_dict["rfid_tag"] = rfid_tag
-
-        product_dict["is_low_stock"] = product_dict.get("quantity", 0) <= product_dict.get("min_quantity", 0) if product_dict.get("min_quantity") else False
 
         # -------------------------
         # Create product
@@ -177,7 +176,7 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
                 location=product.location,
                 supplier=product.supplier,
                 is_active=product.is_active,
-                last_updated=product.updated_at or product.created_at or datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),  # simplified
                 source_system=os.getenv("SERVICE_NAME", "inventory_system")
             )
 
@@ -219,7 +218,6 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
         db.rollback()
         logger.exception("Error creating product")
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 # -------------------------------------------------------------------------
 # (remaining routes unchanged — paste the rest of your file below)

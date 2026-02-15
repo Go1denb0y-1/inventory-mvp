@@ -58,21 +58,19 @@ class ProductPayload(BaseModel):
 # 2. INTERNAL DATABASE SCHEMAS (WITH EXTRA LOGIC)
 # ---------------------------------------------------------
 class ProductBase(BaseModel):
+    sku: str = Field(..., description="Product SKU (string)")
     name: str
     category: Optional[str] = None
-    quantity: int = Field(0, ge=0)
+    quantity: int
     rfid_tag: Optional[str] = None
-    price: Optional[Decimal] = Field(None, ge=0)
-    cost: Optional[Decimal] = Field(None, ge=0)
-    barcode: Optional[str] = None
+    price: Optional[float] = None  # Float as requested
+    cost: Optional[float] = None   # Float as requested
+    tags: List[str] = []
     location: Optional[str] = None
     supplier: Optional[str] = None
-    min_quantity: Optional[int] = Field(None, ge=0)
-    max_quantity: Optional[int] = Field(None, ge=0)
-    reorder_point: Optional[int] = Field(None, ge=0)
     is_active: bool = True
-    tags: List[str] = Field(default_factory=list)
-    source_system: str = "LOCAL" # Ensure DB always has a value for the sync
+    last_updated: Optional[datetime] = None
+    source_system: str
 
 class ProductCreate(ProductBase):
     sku: str
@@ -217,7 +215,6 @@ class InventoryHistoryOut(BaseModel):
     """Schema for inventory history responses"""
     model_config = ConfigDict(from_attributes=True)
     
-    id: int
     product_id: int
     product_sku: str
     product_name: Optional[str] = None
@@ -273,9 +270,7 @@ class StockLevelReport(BaseModel):
     category: Optional[str]
     total_items: int
     total_value: Decimal
-    low_stock_items: int
     out_of_stock_items: int
-    items_needing_reorder: int
     avg_stock_level: Decimal
 
 class TransactionReport(BaseModel):
@@ -303,8 +298,6 @@ class SearchQuery(BaseModel):
     """Schema for search queries"""
     q: Optional[str] = Field(None, description="Search query")
     category: Optional[str] = None
-    min_price: Optional[Decimal] = None
-    max_price: Optional[Decimal] = None
     in_stock_only: bool = False
     active_only: bool = True
 
@@ -339,7 +332,7 @@ class ProductImport(BaseModel):
     quantity: Optional[int] = 0
     price: Optional[Decimal] = None
     cost: Optional[Decimal] = None
-    barcode: Optional[str] = None
+    
     supplier: Optional[str] = None
     location: Optional[str] = None
     tags: Optional[List[str]] = None
