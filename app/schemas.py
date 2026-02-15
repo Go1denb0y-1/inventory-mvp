@@ -58,19 +58,21 @@ class ProductPayload(BaseModel):
 # 2. INTERNAL DATABASE SCHEMAS (WITH EXTRA LOGIC)
 # ---------------------------------------------------------
 class ProductBase(BaseModel):
-    sku: str = Field(..., description="Product SKU (string)")
-    name: str
-    category: Optional[str] = None
-    quantity: int
-    rfid_tag: Optional[str] = None
-    price: Optional[float] = None  # Float as requested
-    cost: Optional[float] = None   # Float as requested
-    tags: List[str] = []
-    location: Optional[str] = None
-    supplier: Optional[str] = None
-    is_active: bool = True
-    last_updated: Optional[datetime] = None
-    source_system: str
+    sku: str = Field(..., description="Unique product SKU")
+    name: str = Field(..., description="Product name")
+    category: str = Field(..., description="Product category")
+    quantity: int = Field(..., description="Product quantity in stock")
+    rfid_tag: Optional[str] = Field(None, description="RFID tag if available")
+    price: Optional[float] = Field(None, description="Selling price")
+    cost: Optional[float] = Field(None, description="Cost price")
+    tags: List[str] = Field(default_factory=list, description="List of product tags")
+    location: Optional[str] = Field(None, description="Storage location")
+    supplier: Optional[str] = Field(None, description="Product supplier")
+    is_active: bool = Field(True, description="Product active status")
+    last_updated: Optional[str] = Field(None, description="Last update timestamp")
+    source_system: str = Field(default="Inventory_system", description="Origin system of the product")
+
+
 
 class ProductCreate(ProductBase):
     sku: str
@@ -81,36 +83,38 @@ class ProductCreate(ProductBase):
         return v.upper().strip()
 
 class ProductUpdate(BaseModel):
-    name: Optional[str] = None
-    category: Optional[str] = None
-    quantity: Optional[int] = Field(None, ge=0)
-    price: Optional[Decimal] = Field(None, ge=0)
-    cost: Optional[Decimal] = Field(None, ge=0)
-    barcode: Optional[str] = None
-    location: Optional[str] = None
-    supplier: Optional[str] = None
-    min_quantity: Optional[int] = Field(None, ge=0)
-    max_quantity: Optional[int] = Field(None, ge=0)
-    reorder_point: Optional[int] = Field(None, ge=0)
-    is_active: bool = True
-    tags: Optional[List[str]] = None
-    rfid_tag: Optional[str] = None
-    source_system: Optional[str] = None # Allow updating source
+    sku: str = Field(..., description="Unique product SKU")
+    name: str = Field(..., description="Product name")
+    category: str = Field(..., description="Product category")
+    quantity: int = Field(..., description="Product quantity in stock")
+    rfid_tag: Optional[str] = Field(None, description="RFID tag if available")
+    price: Optional[float] = Field(None, description="Selling price")
+    cost: Optional[float] = Field(None, description="Cost price")
+    tags: List[str] = Field(default_factory=list, description="List of product tags")
+    location: Optional[str] = Field(None, description="Storage location")
+    supplier: Optional[str] = Field(None, description="Product supplier")
+    is_active: bool = Field(True, description="Product active status")
+    last_updated: Optional[str] = Field(None, description="Last update timestamp")
+    source_system: str = Field(default="Inventory_system", description="Origin system of the product")
+
+
 
 class ProductOut(BaseModel):
-    sku: str
-    name: str
-    category: Optional[str] = None
-    quantity: int
-    rfid_tag: Optional[str] = None
-    price: Optional[float] = None
-    cost: Optional[float] = None
-    tags: List[str] = []
-    location: Optional[str] = None
-    supplier: Optional[str] = None
-    is_active: bool = True
-    source_system: str
-    last_updated: Optional[datetime] = None
+    sku: str = Field(..., description="Unique product SKU")
+    name: str = Field(..., description="Product name")
+    category: str = Field(..., description="Product category")
+    quantity: int = Field(..., description="Product quantity in stock")
+    rfid_tag: Optional[str] = Field(None, description="RFID tag if available")
+    price: Optional[float] = Field(None, description="Selling price")
+    cost: Optional[float] = Field(None, description="Cost price")
+    tags: List[str] = Field(default_factory=list, description="List of product tags")
+    location: Optional[str] = Field(None, description="Storage location")
+    supplier: Optional[str] = Field(None, description="Product supplier")
+    is_active: bool = Field(True, description="Product active status")
+    last_updated: Optional[str] = Field(None, description="Last update timestamp")
+    source_system: str = Field(default="Inventory_system", description="Origin system of the product")
+
+
 
     model_config = {
         "from_attributes": True
