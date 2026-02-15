@@ -175,7 +175,7 @@ class TransactionOut(BaseModel):
     """Schema for transaction responses"""
     model_config = ConfigDict(from_attributes=True)
     
-    id: int
+    
     product_id: int
     product_sku: str
     product_name: Optional[str] = None

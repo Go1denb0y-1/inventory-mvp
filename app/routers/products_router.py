@@ -104,9 +104,25 @@ class FriendAPIClient:
 @router.post("/product_connect")
 def test_friend_sync():
     test_payload = {
-        "sku": "TEST123",
-        "name": "Integration Test Product",
-        "price": 1.00
+        "sku": "ELEC-SSD-001",
+        "name": "Samsung 1TB 980 NVMe SSD",
+        "category": "Electronics",
+        "quantity": 45,
+        "rfid_tag": "RFID-9F3A7B21",
+        "price": 1899.99,
+        "cost": 1450.00,
+        "tags": [
+            "storage",
+            "ssd",
+            "nvme",
+            "high-speed"
+        ],
+        "location": "Warehouse-A1-Shelf-3",
+        "supplier": "Tech Distributors SA",
+        "is_active": True,
+        "last_updated": "2026-02-15T09:45:00Z",
+        "source_system": "Inventory_system"
+        
     }
 
     friend_client = FriendAPIClient()
@@ -347,13 +363,9 @@ def update_product(
             )
             db.add(history)
 
-    for field, value in update_dict.items():
-        setattr(product, field, value)
+    
 
-    if product.min_quantity is not None:
-        product.is_low_stock = product.quantity <= product.min_quantity
-    else:
-        product.is_low_stock = False
+    
 
     product.updated_at = datetime.now(timezone.utc)
 
