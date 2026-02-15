@@ -98,11 +98,8 @@ class ProductUpdate(BaseModel):
     source_system: Optional[str] = None # Allow updating source
 
 class ProductOut(ProductBase):
-    id: int
     sku: str
-    is_low_stock: bool = False
-    created_at: datetime
-    updated_at: datetime
+    
 
     model_config = ConfigDict(from_attributes=True)
 
