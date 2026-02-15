@@ -97,11 +97,24 @@ class ProductUpdate(BaseModel):
     rfid_tag: Optional[str] = None
     source_system: Optional[str] = None # Allow updating source
 
-class ProductOut(ProductBase):
+class ProductOut(BaseModel):
     sku: str
-    
+    name: str
+    category: Optional[str] = None
+    quantity: int
+    rfid_tag: Optional[str] = None
+    price: Optional[float] = None
+    cost: Optional[float] = None
+    tags: List[str] = []
+    location: Optional[str] = None
+    supplier: Optional[str] = None
+    is_active: bool = True
+    source_system: str
+    last_updated: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = {
+        "from_attributes": True
+    }
 
 # ... (Keep the rest of your RFID, Transaction, and History schemas as they were)
 # ----------------------------

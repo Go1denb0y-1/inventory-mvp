@@ -128,9 +128,10 @@ def test_friend_sync():
     friend_client = FriendAPIClient()
     response = friend_client.send_product(test_payload)
 
-    return response
+    return Product
 
-@router.post("/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+
+@router.post("/", response_model = ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     """
     Create product locally, then attempt to notify friend API.
@@ -225,7 +226,10 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
             db.add(history)
             db.commit()
 
-        return product
+        return ProductOut.model_validate(
+            product
+        )
+
 
     except IntegrityError:
         db.rollback()
