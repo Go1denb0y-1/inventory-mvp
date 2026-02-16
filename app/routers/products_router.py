@@ -1,401 +1,130 @@
 import os
-import time
-import requests
 import logging
-from fastapi.encoders import jsonable_encoder
-from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import JSONResponse
-from sqlalchemy import func, desc, asc
+import requests
+from fastapi import FastAPI, HTTPException, Depends, status, APIRouter
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
-from app.models import Product, InventoryHistory, ChangeType, SourceType, Transaction
-from app.schemas import ProductCreate, ProductOut, ProductUpdate, ProductPayload
+from app.models import Product
+from app.schemas import ProductCreate, ProductOut, ProductPayload
 
 router = APIRouter(prefix="/products", tags=["Products"])
-logger = logging.getLogger(__name__)
 
-FRIEND_API_URL = os.getenv(
-    "FRIEND_API_URL",
-    "https://eoi-b1-1.onrender.com/api/product_connect"
-)
-FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "https://eoi-b1-1.onrender.com/api/product_connect")
+# --- logging ---
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+# --- friend api config ---
+FRIEND_API_URL = os.getenv("FRIEND_API_URL", "https://eoi-b1-1.onrender.com/api/product_connect")
+FRIEND_API_KEY = os.getenv("FRIEND_API_KEY", "dummy-key")
 FRIEND_API_TIMEOUT = int(os.getenv("FRIEND_API_TIMEOUT", "60"))
 
-
-# ------------------------------
-# Friend API client (sync)
-# ------------------------------
-# add this import with your other imports
-from fastapi.encoders import jsonable_encoder
-
-# ------------------------------
-# Friend API client (sync, with retries)
-# ------------------------------
 class FriendAPIClient:
-    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None, timeout: int = FRIEND_API_TIMEOUT):
-        self.base_url = (url or FRIEND_API_URL).rstrip("/")
-        self.api_key = api_key or FRIEND_API_KEY
+    """Small helper to POST the product payload to the Friend API.
+    This method treats failures as non-fatal and returns bool success."""
+    def __init__(self, url: str = FRIEND_API_URL, timeout: int = FRIEND_API_TIMEOUT):
+        self.url = url
+        self.headers = {
+            
+            "Content-Type": "application/json",
+        }
         self.timeout = timeout
-        self.headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def send_product(self, product_payload: Dict) -> Dict:
-        """
-        Sends the product payload to the friend API.
-        Returns True if successful, False otherwise.
-        """
+    def send_product(self, payload: dict) -> bool:
         try:
-            resp = requests.post(
-                self.base_url,
-                json=product_payload,
-                headers=self.headers,
-                timeout=self.timeout
-            )
-            if resp.status_code in (200, 201):
-                logger.info("Friend API sync success")
+            resp = requests.post(self.url, json=payload, timeout=self.timeout)
+            if resp.status_code in (200, 201, 202):
                 return True
-            else:
-                logger.warning("Friend API returned status %s: %s", resp.status_code, resp.text)
-                return False
-        except Exception as e:
-            logger.exception("Friend API sync failed: %s", str(e))
+            logger.warning("Friend API returned status=%s body=%s", resp.status_code, resp.text)
+            return False
+        except requests.RequestException as exc:
+            logger.exception("Friend API request failed: %s", exc)
             return False
 
 
-# ------------------------------
-# CREATE PRODUCT (fixed + safe friend sync)
-# ------------------------------
-@router.post("/product_connect")
-def test_friend_sync():
-    test_payload = {
-        "sku": "ELEC-SSD-001",
-        "name": "Samsung 1TB 980 NVMe SSD",
-        "category": "Electronics",
-        "quantity": 45,
-        "rfid_tag": "RFID-9F3A7B21",
-        "price": 1899.99,
-        "cost": 1450.00,
-        "tags": [
-            "storage",
-            "ssd",
-            "nvme",
-            "high-speed"
-        ],
-        "location": "Warehouse-A1-Shelf-3",
-        "supplier": "Tech Distributors SA",
-        "is_active": True,
-        "last_updated": "2026-02-15T09:45:00Z",
-        "source_system": "Inventory_system"
-        
-    }
 
-    friend_client = FriendAPIClient()
-    response = friend_client.send_product(test_payload)
-
-    return Product
-
-
-@router.post("/", response_model = ProductOut, status_code=status.HTTP_201_CREATED)
+@router.post("/products/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     """
-    Create product locally, then attempt to notify friend API.
-    Friend API failures do NOT roll back the local DB transaction.
+    Create a product in the local DB and attempt a non-blocking sync with the Friend API.
+    Returns the created Product (or raises HTTPException on validation/db error).
     """
     try:
-        # -------------------------
-        # Basic validation
-        # -------------------------
+        # normalise SKU
         sku = product_data.sku.upper().strip()
+        # uniqueness check
         existing = db.query(Product).filter(Product.sku == sku).first()
         if existing:
             raise HTTPException(status_code=400, detail=f"Product with SKU '{sku}' already exists")
-        if product_data.quantity is not None and product_data.quantity < 0:
-            raise HTTPException(status_code=400, detail="Quantity cannot be negative")
-        if product_data.price is not None and product_data.price <= 0:
-            raise HTTPException(status_code=400, detail="Price must be positive")
-        if product_data.cost is not None and product_data.cost <= 0:
-            raise HTTPException(status_code=400, detail="Cost must be positive")
 
-        # -------------------------
-        # Filter allowed fields
-        # -------------------------
-        # Exclude unwanted fields explicitly
-        excluded_fields = {"id", "created_at", "updated_at", "is_low_stock", "reorder_point", "max_quantity", "min_quantity", "barcode"}
-        allowed_fields = {c.name for c in Product.__table__.columns if c.name not in excluded_fields}
+        # RFID uniqueness
+        if product_data.rfid_tag:
+            rfid = product_data.rfid_tag.upper().strip()
+            existing_rfid = db.query(Product).filter(Product.rfid_tag == rfid).first()
+            if existing_rfid:
+                raise HTTPException(status_code=400, detail=f"RFID tag '{rfid}' is already assigned")
+            product_data.rfid_tag = rfid
 
-        product_dict = {k: v for k, v in product_data.dict(exclude_unset=True).items() if k in allowed_fields}
+        # Prepare dict for model creation
+        product_dict = product_data.dict(exclude_unset=True)
         product_dict["sku"] = sku
 
-        if product_dict.get("rfid_tag"):
-            rfid_tag = product_dict["rfid_tag"].upper().strip()
-            existing_rfid = db.query(Product).filter(Product.rfid_tag == rfid_tag).first()
-            if existing_rfid:
-                raise HTTPException(status_code=400, detail=f"RFID '{rfid_tag}' already assigned")
-            product_dict["rfid_tag"] = rfid_tag
+        # Ensure numeric fields are plain floats (avoid Decimal persistence surprises)
+        if "price" in product_dict and product_dict["price"] is not None:
+            product_dict["price"] = float(product_dict["price"])
+        if "cost" in product_dict and product_dict["cost"] is not None:
+            product_dict["cost"] = float(product_dict["cost"])
 
-        # -------------------------
-        # Create product
-        # -------------------------
+        # Create and persist
         product = Product(**product_dict)
         db.add(product)
         db.commit()
         db.refresh(product)
 
-        # -------------------------
-        # Build payload for friend API
-        # -------------------------
-        try:
-            payload_obj = ProductPayload(
-                sku=product.sku,
-                name=product.name,
-                category=product.category,
-                quantity=int(product.quantity or 0),
-                rfid_tag=product.rfid_tag,
-                price=float(product.price) if product.price is not None else None,
-                cost=float(product.cost) if product.cost is not None else None,
-                tags=product.tags or [],
-                location=product.location,
-                supplier=product.supplier,
-                is_active=product.is_active,
-                last_updated=datetime.now(timezone.utc),  # simplified
-                source_system=os.getenv("SERVICE_NAME", "inventory_system")
-            )
-
-            encoded_payload = jsonable_encoder(payload_obj)
-            friend_client = FriendAPIClient()
-            friend_response = friend_client.send_product(encoded_payload)
-
-            if friend_response.get("status") != "success":
-                logger.warning("Friend API sync failed for SKU=%s: %s", product.sku, friend_response)
-            else:
-                logger.info("Friend API sync success for SKU=%s", product.sku)
-
-        except Exception:
-            logger.exception("Failed to send product to friend API; skipping sync")
-
-        # -------------------------
-        # Create initial inventory history
-        # -------------------------
-        if product.quantity and product.quantity > 0:
-            history = InventoryHistory(
-                product_id=product.id,
-                product_sku=product.sku,
-                change_type=ChangeType.MANUAL_IN,
-                quantity_before=0,
-                quantity_after=product.quantity,
-                source=SourceType.MANUAL,
-                reason="Initial stock",
-                performed_by="system"
-            )
-            db.add(history)
-            db.commit()
-
-        return ProductOut.model_validate(
-            product
+        # Build payload for Friend API
+        payload = ProductPayload(
+            sku=product.sku,
+            name=product.name,
+            category=product.category,
+            quantity=product.quantity,
+            rfid_tag=product.rfid_tag,
+            price=float(product.price) if product.price is not None else None,
+            cost=float(product.cost) if product.cost is not None else None,
+            tags=product.tags or [],
+            location=product.location,
+            supplier=product.supplier,
+            is_active=product.is_active,
+            last_updated=datetime.now(timezone.utc),
+            source_system=os.getenv("SERVICE_NAME", "inventory_system"),
         )
 
+        # Non-blocking sync (failures are logged but do not rollback the DB)
+        client = FriendAPIClient()
+        success = client.send_product(jsonable_encoder(payload))
+        if success:
+            logger.info("Friend API sync succeeded for SKU=%s", product.sku)
+        else:
+            logger.warning("Friend API sync failed for SKU=%s", product.sku)
 
-    except IntegrityError:
+        return product
+
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Database integrity error")
-    except Exception:
+        logger.exception("Database integrity error: %s", exc)
+        raise HTTPException(status_code=400, detail="Database integrity error (possible constraint violation)")
+    except HTTPException:
+        # re-raise validation / client errors after rolling back
         db.rollback()
-        logger.exception("Error creating product")
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Unexpected error creating product: %s", exc)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# -------------------------------------------------------------------------
-# (remaining routes unchanged — paste the rest of your file below)
-# -------------------------------------------------------------------------
-# ... list_products, get_product, update_product, delete_product (unchanged)
 
-@router.get("/", response_model=List[ProductOut])
-def list_products(
-    db: Session = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    active_only: bool = True,
-    low_stock_only: bool = False,
-    category: Optional[str] = None,
-    min_price: Optional[Decimal] = None,
-    max_price: Optional[Decimal] = None,
-    in_stock_only: bool = False,
-    sort_by: str = "name",
-    sort_order: str = "asc"
-):
 
-    try:
-        query = db.query(Product)
-
-        if active_only:
-            query = query.filter(Product.is_active == True)
-
-        if low_stock_only:
-            query = query.filter(Product.is_low_stock == True)
-
-        if category:
-            query = query.filter(Product.category == category)
-
-        if min_price is not None:
-            query = query.filter(Product.price >= min_price)
-
-        if max_price is not None:
-            query = query.filter(Product.price <= max_price)
-
-        if in_stock_only:
-            query = query.filter(Product.quantity > 0)
-
-        valid_sort_fields = ["sku", "name", "category", "quantity", "price", "created_at"]
-
-        if sort_by in valid_sort_fields:
-            order_func = desc if sort_order.lower() == "desc" else asc
-            query = query.order_by(order_func(getattr(Product, sort_by)))
-        else:
-            query = query.order_by(asc(Product.name))
-
-        return query.offset(skip).limit(limit).all()
-
-    except SQLAlchemyError:
-        logger.exception("Error listing products")
-        raise HTTPException(500, "Database error")
-
-@router.get("/{sku}", response_model=ProductOut)
-def get_product(
-    sku: str,
-    db: Session = Depends(get_db),
-    include_history: bool = False
-):
-
-    sku = sku.upper().strip()
-
-    product = db.query(Product).filter(Product.sku == sku).first()
-
-    if not product:
-        raise HTTPException(404, f"Product '{sku}' not found")
-
-    if not product.is_active:
-        raise HTTPException(410, f"Product '{sku}' is inactive")
-
-    if include_history:
-        history = (
-            db.query(InventoryHistory)
-            .filter(InventoryHistory.product_id == product.id)
-            .order_by(desc(InventoryHistory.timestamp))
-            .limit(10)
-            .all()
-        )
-        product.history_entries = history
-
-    return product
-
-@router.put("/{sku}", response_model=ProductOut)
-def update_product(
-    sku: str,
-    product_data: ProductUpdate,
-    db: Session = Depends(get_db),
-    update_quantity: bool = False
-):
-
-    sku = sku.upper().strip()
-    product = db.query(Product).filter(Product.sku == sku).first()
-
-    if not product:
-        raise HTTPException(404, "Product not found")
-
-    if not product.is_active:
-        raise HTTPException(410, "Product inactive")
-
-    old_quantity = product.quantity
-    update_dict = product_data.dict(exclude_unset=True)
-
-    if "sku" in update_dict:
-        update_dict.pop("sku")
-
-    if "quantity" in update_dict:
-        new_quantity = update_dict["quantity"]
-
-        if new_quantity < 0:
-            raise HTTPException(400, "Quantity cannot be negative")
-
-        if update_quantity and new_quantity != old_quantity:
-            delta = new_quantity - old_quantity
-
-            history = InventoryHistory(
-                product_id=product.id,
-                product_sku=product.sku,
-                change_type=ChangeType.ADJUSTMENT if delta > 0 else ChangeType.CORRECTION,
-                quantity_before=old_quantity,
-                quantity_after=new_quantity,
-                source=SourceType.MANUAL,
-                reason="Manual adjustment",
-                performed_by="system"
-            )
-            db.add(history)
-
-    
-
-    
-
-    product.updated_at = datetime.now(timezone.utc)
-
-    try:
-        db.commit()
-        db.refresh(product)
-        return product
-    except Exception:
-        db.rollback()
-        logger.exception("Error updating product")
-        raise HTTPException(500, "Internal server error")
-
-@router.delete("/{sku}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_product(
-    sku: str,
-    db: Session = Depends(get_db),
-    hard_delete: bool = False,
-    force: bool = False
-):
-
-    sku = sku.upper().strip()
-    product = db.query(Product).filter(Product.sku == sku).first()
-
-    if not product:
-        raise HTTPException(404, "Product not found")
-
-    try:
-        if hard_delete:
-            transaction_count = db.query(func.count(Transaction.id)).filter(
-                Transaction.product_sku == sku
-            ).scalar()
-
-            if transaction_count > 0 and not force:
-                raise HTTPException(
-                    409,
-                    f"Product has {transaction_count} transactions. Use force=true."
-                )
-
-            db.query(InventoryHistory).filter(
-                InventoryHistory.product_sku == sku
-            ).delete(synchronize_session=False)
-
-            db.delete(product)
-
-        else:
-            product.is_active = False
-            product.updated_at = datetime.now(timezone.utc)
-
-        db.commit()
-
-    except HTTPException:
-        raise
-    except Exception:
-        db.rollback()
-        logger.exception("Error deleting product")
-        raise HTTPException(500, "Internal server error")
-
-    return JSONResponse(status_code=204, content=None)
