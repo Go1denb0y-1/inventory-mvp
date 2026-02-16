@@ -8,16 +8,19 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, scoped_session, Session, declarative_base
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.orm import declarative_base
-from app.models import Product, Transaction, InventoryHistory 
+
 
 DATABASE_URL = "postgresql+psycopg2://postgres:Mmuussaa4@localhost"
 engine = create_engine(DATABASE_URL, echo=True)
+
+# Session factory
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 # -------------------------------
 # Base class for models (SINGLE declaration)
 # -------------------------------
 Base = declarative_base()
-Base.metadata.drop_all(bind=engine)
-Base.metadata.create_all(bind=engine)
+
 
 
 # -------------------------------

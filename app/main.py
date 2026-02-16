@@ -31,13 +31,14 @@ app.add_middleware(
 # ----------------------------
 # Startup event
 # ----------------------------
-@asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP: Runs when the app starts ---
-    # 1. Create Tables
-    Base.metadata.create_all(bind=engine)
     
-    # 2. DEBUG: Log every registered route to the console
+    # 1️⃣ Create tables (development only)
+    # Alembic is preferred in production
+    Base.metadata.create_all(bind=engine)
+
+    # 2️⃣ DEBUG: Log registered routes
     print("\n--- REGISTERED ROUTES ---")
     for route in app.routes:
         methods = ", ".join(route.methods) if hasattr(route, 'methods') else "N/A"
