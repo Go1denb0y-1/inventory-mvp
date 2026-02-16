@@ -48,7 +48,7 @@ class FriendAPIClient:
 
 
 
-@router.post("/products/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     """
     Create a product in the local DB and attempt a non-blocking sync with the Friend API.

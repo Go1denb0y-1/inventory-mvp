@@ -40,7 +40,7 @@ class SourceType(str, enum.Enum):
 class Product(Base):
     __tablename__ = "products"
     
-    id = Column(Integer, primary_key=True, index=True)
+    
     sku = Column(String(50), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False, index=True)
     category = Column(String(100), index=True)
@@ -50,8 +50,7 @@ class Product(Base):
         default=0,
         doc="Current inventory quantity"
     )
-    min_quantity = Column(Integer, default=0, doc="Minimum stock level for alerts")
-    max_quantity = Column(Integer, doc="Maximum stock capacity")
+    
     
     rfid_tag = Column(
         String(100), 
@@ -72,29 +71,16 @@ class Product(Base):
         doc="Cost price for profit calculation"
     )
     
-    barcode = Column(String(100), unique=True, nullable=True, index=True)
+    
     
     tags = Column(ARRAY(String), default=[], doc="Product tags for categorization")
     
     location = Column(String(100), doc="Storage location")
     supplier = Column(String(100), doc="Supplier name")
-    reorder_point = Column(Integer, doc="Quantity threshold for reordering")
+    
     
     is_active = Column(Boolean, default=True, nullable=False, index=True)
-    is_low_stock = Column(Boolean, default=False, nullable=False, index=True)
     
-    created_at = Column(
-        DateTime(timezone=True), 
-        server_default=func.now(),
-        nullable=False
-    )
-    
-    updated_at = Column(
-        DateTime(timezone=True), 
-        server_default=func.now(), 
-        onupdate=func.now(),
-        nullable=False
-    )
     
     # Relationships
     transactions = relationship(
@@ -116,11 +102,7 @@ class Product(Base):
     # Table-level constraints
     __table_args__ = (
         CheckConstraint('quantity >= 0', name='non_negative_quantity'),
-        CheckConstraint('min_quantity >= 0', name='non_negative_min_quantity'),
-        CheckConstraint(
-            'max_quantity >= min_quantity OR max_quantity IS NULL', 
-            name='max_greater_than_min'
-        ),
+        
         CheckConstraint('price >= 0 OR price IS NULL', name='non_negative_price'),
         CheckConstraint('cost >= 0 OR cost IS NULL', name='non_negative_cost'),
         Index('idx_product_sku_active', 'sku', 'is_active'),
@@ -143,12 +125,7 @@ class Product(Base):
             return ((self.price - self.cost) / self.cost) * 100
         return None
     
-    @hybrid_property
-    def needs_reorder(self):
-        """Check if product needs reordering"""
-        if self.reorder_point is not None:
-            return self.quantity <= self.reorder_point
-        return False
+    
     
     def __repr__(self):
         return f"<Product(sku='{self.sku}', name='{self.name}', quantity={self.quantity})>"
