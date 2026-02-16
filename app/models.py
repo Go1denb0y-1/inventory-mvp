@@ -39,55 +39,34 @@ class SourceType(str, enum.Enum):
 # ----------------------------
 class Product(Base):
     __tablename__ = "products"
+
+    # Primary key (necessary for SQLAlchemy)
+    sku = Column(String(50), primary_key=True, index=True, doc="Unique product SKU")
     
+    name = Column(String(255), nullable=False, index=True, doc="Product name")
+    category = Column(String(100), nullable=True, index=True, doc="Product category")
+    quantity = Column(Integer, nullable=False, default=0, doc="Product quantity in stock")
     
-    sku = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    category = Column(String(100), index=True)
-    quantity = Column(
-        Integer, 
-        nullable=False, 
-        default=0,
-        doc="Current inventory quantity"
-    )
+    rfid_tag = Column(String(100), nullable=True, unique=True, index=True, doc="RFID tag if available")
+    price = Column(Numeric(10, 2), nullable=True, doc="Selling price")
+    cost = Column(Numeric(10, 2), nullable=True, doc="Cost price")
     
+    tags = Column(ARRAY(String), default=[], doc="List of product tags")
+    location = Column(String(100), nullable=True, doc="Storage location")
+    supplier = Column(String(100), nullable=True, doc="Product supplier")
     
-    rfid_tag = Column(
-        String(100), 
-        unique=True, 
-        nullable=True,  # Not all products may have RFID
-        index=True,
-        doc="RFID tag UID"
-    )
+    is_active = Column(Boolean, nullable=False, default=True, index=True, doc="Product active status")
     
-    price = Column(
-        Numeric(10, 2), 
-        nullable=True,  # Some items might not have a price
-        doc="Unit price in local currency"
-    )
-    
-    cost = Column(
-        Numeric(10, 2),
-        doc="Cost price for profit calculation"
-    )
-    
-    
-    
-    tags = Column(ARRAY(String), default=[], doc="Product tags for categorization")
-    
-    location = Column(String(100), doc="Storage location")
-    supplier = Column(String(100), doc="Supplier name")
-    
-    
-    is_active = Column(Boolean, default=True, nullable=False, index=True)
-    
-    
+    # Extra fields from ProductBase
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), doc="Last update timestamp")
+    source_system = Column(String(50), default="Inventory_system", nullable=False, doc="Origin system of the product")
+
     # Relationships
     transactions = relationship(
-        "Transaction", 
+        "Transaction",
         back_populates="product",
         cascade="all, delete-orphan",
-        lazy="dynamic",  # Use "select" if you want eager loading by default
+        lazy="dynamic",
         foreign_keys="Transaction.product_sku"
     )
     
@@ -98,38 +77,30 @@ class Product(Base):
         lazy="dynamic",
         foreign_keys="InventoryHistory.product_sku"
     )
-    
+
     # Table-level constraints
     __table_args__ = (
         CheckConstraint('quantity >= 0', name='non_negative_quantity'),
-        
         CheckConstraint('price >= 0 OR price IS NULL', name='non_negative_price'),
         CheckConstraint('cost >= 0 OR cost IS NULL', name='non_negative_cost'),
         Index('idx_product_sku_active', 'sku', 'is_active'),
         Index('idx_product_rfid_active', 'rfid_tag', 'is_active'),
         Index('idx_product_category_quantity', 'category', 'quantity'),
     )
-    
-    # Hybrid properties (computed properties)
-    @hybrid_property
+
+    # Computed properties
+    @property
     def total_value(self):
-        """Calculate total inventory value (quantity * price)"""
-        if self.price is not None:
-            return self.quantity * self.price
-        return 0
-    
-    @hybrid_property
+        return float(self.price or 0) * self.quantity
+
+    @property
     def profit_margin(self):
-        """Calculate profit margin if cost is known"""
-        if self.cost is not None and self.price is not None and self.cost > 0:
-            return ((self.price - self.cost) / self.cost) * 100
+        if self.cost and self.price and self.cost > 0:
+            return float((self.price - self.cost) / self.cost) * 100
         return None
-    
-    
-    
+
     def __repr__(self):
         return f"<Product(sku='{self.sku}', name='{self.name}', quantity={self.quantity})>"
-
 
 # ----------------------------
 # Transaction Model
