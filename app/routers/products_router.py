@@ -71,7 +71,7 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
             product_data.rfid_tag = rfid
 
         # Prepare dict for model creation
-        product_dict = product_data.dict(exclude_unset=True)
+        product_dict = product_data.model_dump(exclude_unset=True)
         product_dict["sku"] = sku
 
         # Ensure numeric fields are plain floats (avoid Decimal persistence surprises)
