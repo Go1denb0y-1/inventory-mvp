@@ -9,8 +9,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from app.database import Base
-from app.models import product, category, supplier 
-
+from app.models import Base
 # --- ADD PROJECT ROOT TO PYTHON PATH ---
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(BASE_DIR))

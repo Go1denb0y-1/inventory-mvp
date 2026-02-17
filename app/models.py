@@ -41,7 +41,8 @@ class Product(Base):
     __tablename__ = "products"
 
     # Primary key (necessary for SQLAlchemy)
-    sku = Column(String(50), primary_key=True, index=True, doc="Unique product SKU")
+    id = Column(Integer, primary_key=True, index=True)
+    sku = Column(String(50), unique=True, index=True, doc="Unique product SKU")
     
     name = Column(String(255), nullable=False, index=True, doc="Product name")
     category = Column(String(100), nullable=True, index=True, doc="Product category")
@@ -179,7 +180,7 @@ class Transaction(Base):
 class InventoryHistory(Base):
     __tablename__ = "inventory_history"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), index=True)
     product_sku = Column(String(50), ForeignKey("products.sku", ondelete="CASCADE"), index=True)

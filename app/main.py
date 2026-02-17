@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     
     # 1️⃣ Create tables (development only)
     # Alembic is preferred in production
-    Base.metadata.drop_all(bind=engine)
+    
     Base.metadata.create_all(bind=engine)
 
     # 2️⃣ DEBUG: Log registered routes
