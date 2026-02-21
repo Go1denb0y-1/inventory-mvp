@@ -69,7 +69,7 @@ class ProductBase(BaseModel):
     location: Optional[str] = Field(None, description="Storage location")
     supplier: Optional[str] = Field(None, description="Product supplier")
     is_active: bool = Field(True, description="Product active status")
-    last_updated: Optional[str] = Field(None, description="Last update timestamp")
+    last_updated: Optional[datetime] = Field(None, description="Last update timestamp")
     source_system: str = Field(default="Inventory_system", description="Origin system of the product")
 
 
@@ -94,7 +94,7 @@ class ProductUpdate(BaseModel):
     location: Optional[str] = Field(None, description="Storage location")
     supplier: Optional[str] = Field(None, description="Product supplier")
     is_active: bool = Field(True, description="Product active status")
-    last_updated: Optional[str] = Field(None, description="Last update timestamp")
+    last_updated: Optional[datetime] = Field(None, description="Last update timestamp")
     source_system: str = Field(default="Inventory_system", description="Origin system of the product")
 
 
@@ -111,7 +111,7 @@ class ProductOut(BaseModel):
     location: Optional[str] = Field(None, description="Storage location")
     supplier: Optional[str] = Field(None, description="Product supplier")
     is_active: bool = Field(True, description="Product active status")
-    last_updated: Optional[str] = Field(None, description="Last update timestamp")
+    last_updated: Optional[datetime] = Field(None, description="Last update timestamp")
     source_system: str = Field(default="Inventory_system", description="Origin system of the product")
 
 
