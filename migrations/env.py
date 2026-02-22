@@ -10,6 +10,8 @@ from alembic import context
 config = context.config
 
 database_url = os.getenv("DATABASE_URL")
+print("ALEMBIC DATABASE_URL RAW:", database_url)
+print("ALEMBIC DATABASE_URL REPR:", repr(database_url))
 
 if database_url is None:
     raise ValueError("DATABASE_URL environment variable is not set")
