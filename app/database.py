@@ -13,58 +13,29 @@ from sqlalchemy.orm import declarative_base
 import os
 
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg2://postgres:your_local_password@localhost:5432/your_local_db"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+if DATABASE_URL:
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(bind=engine)
+
+engine = None
+SessionLocal = None
 Base = declarative_base()
-# Session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# -------------------------------
-# Base class for models (SINGLE declaration)
-# -------------------------------
-Base = declarative_base()
-
-
 
 # -------------------------------
 # Configuration
 # -------------------------------
+
 def get_database_url() -> str:
-    """
-    Get database URL from environment or fallback to local.
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL must be set.")
     
-    Priority:
-    1. DATABASE_URL from environment (for production)
-    2. POSTGRES_URL from environment (alternative)
-    3. Local development URL
-    """
-    # Production/Cloud URL
-    cloud_url = os.getenv("DATABASE_URL")
-    if cloud_url:
-        # Fix common issue: PostgreSQL URL might need to be converted from postgres:// to postgresql://
-        if cloud_url.startswith("postgres://"):
-            cloud_url = cloud_url.replace("postgres://", "postgresql://", 1)
-        return cloud_url
-    
-    # Alternative environment variable
-    postgres_url = os.getenv("POSTGRES_URL")
-    if postgres_url:
-        return postgres_url
-    
-    # Local development
-    # Consider using environment variables for local too
-    db_user = os.getenv("DB_USER", "postgres")
-    db_password = os.getenv("DB_PASSWORD", "Mmuussaa4")
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = os.getenv("DB_PORT", "5434")
-    db_name = os.getenv("DB_NAME", "inventory_db")
-    
-    return f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+
+    return url
 
 # Get the database URL
 SQLALCHEMY_DATABASE_URL = get_database_url()
@@ -142,7 +113,6 @@ engine = create_database_engine()
 # -------------------------------
 # Session Factory
 # -------------------------------
-# Regular session factory
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
